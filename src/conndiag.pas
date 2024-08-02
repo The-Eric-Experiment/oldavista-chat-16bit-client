@@ -3,7 +3,7 @@ unit Conndiag;
 interface
 
 uses SysUtils,WinTypes, WinProcs, Classes, Graphics, Forms, Controls, Buttons,
-  StdCtrls, ExtCtrls, RxCombos, DBCtrls;
+  StdCtrls, ExtCtrls, DBCtrls;
 {    , WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
   Forms, Dialogs, StdCtrls;}
 
@@ -24,6 +24,9 @@ type
     { Private declarations }
   public
     { Public declarations }
+    NicknameColors: TStringList;
+    {constructor Create(AOwner: TComponent); override;}
+    destructor Destroy; override;
   end;
 
 var
@@ -34,6 +37,12 @@ implementation
 uses Main, ProtocolMessages;
 
 {$R *.DFM}
+
+destructor TConnectionDialog.Destroy;
+begin
+  NicknameColors.Free;
+  inherited Destroy;
+end;
 
 procedure TConnectionDialog.ColorSelectorDrawItem(Control: TWinControl;
   Index: Integer; Rect: TRect; State: TOwnerDrawState);
@@ -51,25 +60,27 @@ begin
   Dec(ARect.Bottom, 2);
   if FDisplayNames then ARect.Right := ARect.Left + ColorWidth
   else Dec(ARect.Right, 3);
-  with (Control as TComboBox).Canvas do begin
+  with (Control as TComboBox).Canvas do
+  begin
     FillRect(Rect);
     Safer := Brush.Color;
     Pen.Color := clWindowText;
     Rectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom);
-    Brush.Color := StringToColor((Control as TComboBox).Items[Index]);
+    Brush.Color := StringToColor(NicknameColors[Index]);
     try
       InflateRect(ARect, -1, -1);
       FillRect(ARect);
     finally
       Brush.Color := Safer;
     end;
-    if FDisplayNames then begin
+    if FDisplayNames then
+    begin
       StrPCopy(Text, (Control as TComboBox).Items[Index]);
       Rect.Left := Rect.Left + ColorWidth + 6;
       DrawText(Handle, Text, StrLen(Text), Rect,
         DT_SINGLELINE or DT_VCENTER or DT_NOPREFIX);
     end;
-end;
+  end;
 end;
 
 end.
