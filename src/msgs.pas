@@ -3,7 +3,7 @@ unit ProtocolMessages;
 interface
 
 uses
-  SysUtils, Classes;
+  SysUtils, Classes, PCharLst, Graphics;
 
 type
   RColorList = record
@@ -28,6 +28,8 @@ type
     RoomID: String;
   end;
 
+  PUser = ^RUser;
+
   RUserRemove = record
     UserID: String;
     RoomID: String;
@@ -43,11 +45,15 @@ type
   end;
 
   RServerChatMessage = record
-    FromNickname: String;
-    FromID: String;
-    ToNickname: String;
-    ToID: String;
-    Text: String;
+    RoomID: String;
+    FromUser: PUser;
+    ToUser: PUser;
+    Privately: Boolean;
+    SpeechMode: String;
+    Time: String;
+    IsSystemMessage: Boolean;
+    SystemMessageSubject: PUser;
+    Message: String;
   end;
 
 const
@@ -67,139 +73,210 @@ const
   CLIENT_ROOM_LIST_REQUEST = '106';
 
 
-function GetMessageType(Value: String): String;
-function GetMessageAsList(Value: String): TStringList;
-function GetListField(Value: String): TStringList;
+function GetMessageType(Value: PChar): String;
+function GetMessageAsList(Value: PChar; FullMessage: Boolean): TPCharList;
+function GetListField(Value: PChar): TStringList;
 function Quotation(Input: String): String;
-function ParseColorListMessage(Content: String): RColorList;
-function ParseRoomListItemMessage(Content: String): RRoomListItem;
-function ParseUserAddMessage(Content: String): RUser;
-function ParseUserRemoveMessage(Content: String): RUserRemove;
-function ParseServerUserRegistratoinSuccessMessage(Content: String): RUser;
-function ParseServerChatMessageSentMessage(Content: String): RServerChatMessage;
+function ParseColorListMessage(Content: PChar): RColorList;
+function ParseRoomListItemMessage(Content: PChar): RRoomListItem;
+function ParseServerUser(Content: PChar; FullMessage: Boolean): RUser;
+function ParseUserAddMessage(Content: PChar): RUser;
+function ParseUserRemoveMessage(Content: PChar): RUserRemove;
+function ParseServerUserRegistrationSuccessMessage(Content: PChar): RUser;
+function ParseServerChatMessageSentMessage(Content: PChar): RServerChatMessage;
 function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String): String;
 function CreateSendMessageMessage(Msg: RMessage): String;
+function HtmlToDelphiColor(const HtmlColor: string): TColor;
+function DelphiToHtmlColor(Color: TColor): string;
+procedure FreeServerChatMessage(var Message: RServerChatMessage);
 implementation
 
-function GetMessageType(Value: String): String;
+function HtmlToDelphiColor(const HtmlColor: string): TColor;
+var
+  R, G, B: string;
+  ColorStr: string;
+begin
+  if (Length(HtmlColor) = 7) and (HtmlColor[1] = '#') then
+  begin
+    R := Copy(HtmlColor, 2, 2);
+    G := Copy(HtmlColor, 4, 2);
+    B := Copy(HtmlColor, 6, 2);
+
+    ColorStr := '$' + B + G + R;  { Delphi expects BGR format }
+    Result := StringToColor(ColorStr);
+  end
+  else
+    raise Exception.Create('Invalid HTML color format');
+end;
+
+function DelphiToHtmlColor(Color: TColor): string;
+var
+  ColorValue: Longint;
+  R, G, B: Byte;
+begin
+  ColorValue := ColorToRGB(Color);  { Ensure color is in RGB format }
+  R := (ColorValue and $000000FF);
+  G := (ColorValue and $0000FF00) shr 8;
+  B := (ColorValue and $00FF0000) shr 16;
+
+  Result := Format('#%.2X%.2X%.2X', [R, G, B]);  { Format as #RRGGBB }
+end;
+
+
+function GetMessageType(Value: PChar): String;
 var
   i: Integer;
   MessageType: String;
   c: Char;
 begin
   MessageType := '';
-  for i := 1 to Length(Value) do
+  i := 0;
+  while Value[i] <> #0 do
   begin
     c := Value[i];
     if c = ' ' then
-      break;
-
+      Break;
     MessageType := MessageType + c;
+    Inc(i);
   end;
 
   Result := MessageType;
 end;
 
-function GetMessageAsList(Value: String): TStringList;
+function GetMessageAsList(Value: PChar; FullMessage: Boolean): TPCharList;
 var
   i: Integer;
-  MessageContent: TStringList;
+  MessageContent: TPCharList;
   c: Char;
   FoundFirstSpace: Boolean;
   IsWithinQuotes: Boolean;
-  Accumulator: String;
-  TotalLetters: Integer;
+  Accumulator: PChar;
+  AccumIndex: Integer;
+  Escaping: Boolean;
+const
+  MaxAccumLen = 1024;  { Adjust this size based on your needs }
 begin
-  MessageContent := TStringList.Create;
+  MessageContent := TPCharList.Create;
   IsWithinQuotes := False;
-  FoundFirstSpace := False;
-  Accumulator := '';
-  TotalLetters := Length(Value);
-  
-  {If the string doesn't end in " then we need to add one more count
-   so we can get the last character of the string}
-  if (TotalLetters > 0) and (Value[TotalLetters] <> '"') then
-    TotalLetters := TotalLetters + 1;
+  FoundFirstSpace := not FullMessage;
+  Escaping := False;
 
-  for i := 1 to TotalLetters do
+  { Allocate a fixed buffer for Accumulator }
+  GetMem(Accumulator, MaxAccumLen);
+  AccumIndex := 0;
+  Accumulator[0] := #0;  { Initialize as an empty string }
+
+  i := 0;
+  while Value[i] <> #0 do
   begin
-    if i <= Length(Value) then
-      c := Value[i]
-    else
-      c := ' ';  { Treat end of string as a space to trigger final add }
+    c := Value[i];
 
-    if ((c = ' ') and not IsWithinQuotes) or (i = TotalLetters) then
+    if Escaping then
     begin
-      FoundFirstSpace := True;
-      if (Accumulator <> '') or (IsWithinQuotes) then
+      if AccumIndex < MaxAccumLen - 1 then
       begin
-        MessageContent.Add(Accumulator);
-        Accumulator := '';
+        Accumulator[AccumIndex] := c;
+        Inc(AccumIndex);
+        Accumulator[AccumIndex] := #0;  { Null-terminate the string }
       end;
-      continue;
+      Escaping := False;
+      Inc(i);
+      Continue;
     end;
 
-    if FoundFirstSpace then
+    if c = '\' then
     begin
+      Escaping := True;
+      Inc(i);
+      Continue;
+    end;
+
+    if ((c = ' ') and not IsWithinQuotes) then
+    begin
+      FoundFirstSpace := True;
+
+      if (AccumIndex > 0) or (IsWithinQuotes) then
+      begin
+        MessageContent.Add(StrNew(Accumulator));  { Add a copy of Accumulator }
+        AccumIndex := 0;
+        Accumulator[0] := #0;  { Reset Accumulator }
+      end;
+    end
+    else if FoundFirstSpace then
       if c = '"' then
       begin
         if IsWithinQuotes then
         begin
           IsWithinQuotes := False;
-          MessageContent.Add(Accumulator);  { Add empty string if Accumulator is empty }
-          Accumulator := '';
+          MessageContent.Add(StrNew(Accumulator));  { Add a copy of Accumulator }
+          AccumIndex := 0;
+          Accumulator[0] := #0;  { Reset Accumulator }
         end
         else
           IsWithinQuotes := True;
-        continue;
+      end
+      else
+      if AccumIndex < MaxAccumLen - 1 then
+      begin
+        Accumulator[AccumIndex] := c;
+        Inc(AccumIndex);
+        Accumulator[AccumIndex] := #0;  { Null-terminate the string }
       end;
-      Accumulator := Accumulator + c;
-    end;
+
+    Inc(i);
   end;
+
+  { Add the last accumulated string if any }
+  if AccumIndex > 0 then
+    MessageContent.Add(StrNew(Accumulator));
+
+  FreeMem(Accumulator, MaxAccumLen);  { Free the Accumulator memory }
 
   Result := MessageContent;
 end;
 
 
-function GetListField(Value: String): TStringList;
+function GetListField(Value: PChar): TStringList;
 var
   i: Integer;
   MessageContent: TStringList;
   c: Char;
   IsWithinQuotes: Boolean;
   Accumulator: String;
-  TotalLetters: Integer;
 begin
   MessageContent := TStringList.Create;
   IsWithinQuotes := False;
   Accumulator := '';
-  TotalLetters := Length(Value);
-  { TODO, THIS MIGHT HAVE ISSUES WHERE IT DOESN'T KNOW WHEN THE ARRAY ENDS }
-  if (Value[1] = '[') and (Value[2] = ']') then
-    for i := 3 to TotalLetters do
+  
+  i := 0;
+  if (Value[0] = '[') and (Value[1] = ']') then
+  begin
+    i := 2;  { Start parsing after the brackets }
+
+    while Value[i] <> #0 do
     begin
       c := Value[i];
 
-      if ((c = ',') and (IsWithinQuotes = False)) or (i = TotalLetters) then
+      if ((c = ',') and not IsWithinQuotes) then
       begin
         if Accumulator <> '' then
         begin
           MessageContent.Add(Accumulator);
           Accumulator := '';
         end;
-        continue;
-      end;
+      end
+      else if c = '"' then
+        IsWithinQuotes := not IsWithinQuotes
+      else
+        Accumulator := Accumulator + c;
 
-      if c = '"' then
-      begin
-        if IsWithinQuotes = True then
-          IsWithinQuotes := False
-        else
-          IsWithinQuotes := True;
-        continue;
-      end;
-      Accumulator := Accumulator + c;
+      Inc(i);
     end;
+
+    { Add the last accumulated string if any }
+    if Accumulator <> '' then
+      MessageContent.Add(Accumulator);
+  end;
 
   Result := MessageContent;
 end;
@@ -223,140 +300,189 @@ begin
     Result := Input;
 end;
 
-function ParseColorListMessage(Content: String): RColorList;
+function ParseColorListMessage(Content: PChar): RColorList;
 var
-  i: Integer;
-  Fields: TStringList;
-  ColorList: TStringList;
-  ColorNames: TStringList;
+  Fields: TPCharList;
   ColorListMsg: RColorList;
 begin
   try
-    Fields := GetMessageAsList(Content);
+    Fields := GetMessageAsList(Content, True);
 
     with ColorListMsg do
     begin
-      Colors := GetListField(Fields[0]);
-      Names := GetListField(Fields[1]);
-    end
+      Colors := GetListField(Fields.Get(0));
+      Names := GetListField(Fields.Get(1));
+    end;
   finally
-    Fields.Free;
+    Fields.Free; { Free the TPCharList to avoid memory leaks }
   end;
 
   Result := ColorListMsg;
 end;
 
-function ParseRoomListItemMessage(Content: String): RRoomListItem;
+function ParseRoomListItemMessage(Content: PChar): RRoomListItem;
 var
-  i: Integer;
-  Fields: TStringList;
+  Fields: TPCharList;
   ListItem: RRoomListItem;
 begin
   try
-    Fields := GetMessageAsList(Content);
+    Fields := GetMessageAsList(Content, True);
 
     with ListItem do
     begin
-      RoomId := Fields[0];
-      Name := Fields[1];
+      RoomId := StrPas(Fields.Get(0));  { Convert PChar to String }
+      Name := StrPas(Fields.Get(1));    { Convert PChar to String }
     end;
   finally
-    Fields.Free;
+    Fields.Free;  { Free the TPCharList }
   end;
 
   Result := ListItem;
 end;
 
-function ParseUserAddMessage(Content: String): RUser;
+function ParseServerUser(Content: PChar; FullMessage: Boolean): RUser;
 var
-  i: Integer;
-  Fields: TStringList;
+  Fields: TPCharList;
   ListItem: RUser;
 begin
   try
-    Fields := GetMessageAsList(Content);
+    Fields := GetMessageAsList(Content, FullMessage);
 
     with ListItem do
     begin
-      UserId := Fields[0];
-      Nickname := Fields[1];
-      Color := Fields[2];
-      RoomID := Fields[3];
+      UserId := StrPas(Fields.Get(0));     { Convert PChar to String }
+      Nickname := StrPas(Fields.Get(1));   { Convert PChar to String }
+      Color := StrPas(Fields.Get(2));      { Convert PChar to String }
+      RoomID := StrPas(Fields.Get(3));     { Convert PChar to String }
     end;
   finally
-    Fields.Free;
+    Fields.Free;  { Free the TPCharList }
   end;
 
   Result := ListItem;
 end;
 
-function ParseUserRemoveMessage(Content: String): RUserRemove;
+function ParseUserAddMessage(Content: PChar): RUser;
+begin
+  Result := ParseServerUser(Content, True);
+end;
+
+function ParseUserRemoveMessage(Content: PChar): RUserRemove;
 var
-  i: Integer;
-  Fields: TStringList;
+  Fields: TPCharList;
   ListItem: RUserRemove;
 begin
   try
-    Fields := GetMessageAsList(Content);
+    Fields := GetMessageAsList(Content, True);
 
     with ListItem do
     begin
-      UserId := Fields[0];
-      RoomID := Fields[1];
+      UserId := StrPas(Fields.Get(0));     { Convert PChar to String }
+      RoomID := StrPas(Fields.Get(1));     { Convert PChar to String }
     end;
   finally
-    Fields.Free;
+    Fields.Free;  { Free the TPCharList }
   end;
 
   Result := ListItem;
 end;
 
-function ParseServerUserRegistratoinSuccessMessage(Content: String): RUser;
-var
-  i: Integer;
-  Fields: TStringList;
-  ListItem: RUser;
+function ParseServerUserRegistrationSuccessMessage(Content: PChar): RUser;
 begin
-  try
-    Fields := GetMessageAsList(Content);
-
-    with ListItem do
-    begin
-      UserId := Fields[0];
-      Nickname := Fields[1];
-      Color := Fields[2];
-      RoomID := Fields[3];
-    end;
-  finally
-    Fields.Free;
-  end;
-
-  Result := ListItem;
+  Result := ParseServerUser(Content, True);
 end;
 
-function ParseServerChatMessageSentMessage(Content: String): RServerChatMessage;
+procedure FreeServerChatMessage(var Message: RServerChatMessage);
+begin
+  if Message.FromUser <> nil then
+  begin
+    Dispose(Message.FromUser);
+    Message.FromUser := nil;
+  end;
+
+  if Message.ToUser <> nil then
+  begin
+    Dispose(Message.ToUser);
+    Message.ToUser := nil;
+  end;
+
+  if Message.SystemMessageSubject <> nil then
+  begin
+    Dispose(Message.SystemMessageSubject);
+    Message.SystemMessageSubject := nil;
+  end;
+end;
+
+function ParseServerChatMessageSentMessage(Content: PChar): RServerChatMessage;
 var
-  i: Integer;
-  Fields: TStringList;
+  Fields: TPCharList;
   Message: RServerChatMessage;
+  MFrom: PChar;
+  MTo: PChar;
+  MSystemMessageSubject: PChar;
+  TempUser: RUser;
 begin
   try
-    Fields := GetMessageAsList(Content);
+    Fields := GetMessageAsList(Content, True);
 
     with Message do
     begin
-      FromNickname := Fields[0];
-      FromID := Fields[1];
-      ToNickname := Fields[2];
-      ToID := Fields[3];
-      Text := Fields[4];
+      RoomID := StrPas(Fields.Get(0));
+
+      MFrom := Fields.Get(1);
+      MTo := Fields.Get(2);
+
+      if (MFrom <> nil) and (MFrom^ <> #0) then
+      begin
+        New(FromUser);
+        TempUser := ParseServerUser(MFrom, False);
+        FromUser^ := TempUser;
+      end
+      else
+        FromUser := nil;
+
+      if (MTo <> nil) and (MTo^ <> #0) then
+      begin
+        New(ToUser);
+        TempUser := ParseServerUser(MTo, False);
+        ToUser^ := TempUser;
+      end
+      else
+        ToUser := nil;
+
+      if StrPas(Fields.Get(3)) = 'true' then
+        Privately := True
+      else
+        Privately := False;
+
+      SpeechMode := StrPas(Fields.Get(4));
+      Time := StrPas(Fields.Get(5));
+
+      if StrPas(Fields.Get(6)) = 'true' then
+        IsSystemMessage := True
+      else
+        IsSystemMessage := False;
+
+      MSystemMessageSubject := Fields.Get(7);
+
+      if (MSystemMessageSubject <> nil) and (MSystemMessageSubject^ <> #0) then
+      begin
+        New(SystemMessageSubject);
+        TempUser := ParseServerUser(MSystemMessageSubject, False);
+        SystemMessageSubject^ := TempUser;
+      end
+      else
+        SystemMessageSubject := nil;
+
+      Message := StrPas(Fields.Get(8));
     end;
   finally
-    Fields.Free;
+    Fields.Free;  { Free the TPCharList }
   end;
 
   Result := Message;
 end;
+
 
 function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String): String;
 begin

@@ -3,9 +3,7 @@ unit Conndiag;
 interface
 
 uses SysUtils,WinTypes, WinProcs, Classes, Graphics, Forms, Controls, Buttons,
-  StdCtrls, ExtCtrls, DBCtrls;
-{    , WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
-  Forms, Dialogs, StdCtrls;}
+  StdCtrls, ExtCtrls;
 
 type
   TConnectionDialog = class(TForm)
@@ -66,7 +64,7 @@ begin
     Safer := Brush.Color;
     Pen.Color := clWindowText;
     Rectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom);
-    Brush.Color := StringToColor(NicknameColors[Index]);
+    Brush.Color := HtmlToDelphiColor(NicknameColors[Index]);
     try
       InflateRect(ARect, -1, -1);
       FillRect(ARect);

@@ -1,0 +1,429 @@
+{Delphi 1 Version 7.03}
+{*********************************************************}
+{*                     HTMLVIEW.PAS                      *}
+{*                Copyright (c) 1995-9 by                *}
+{*                   L. David Baldwin                    *}
+{*                 All rights reserved.                  *}
+{*********************************************************}
+
+{$i htmlcons.inc}
+
+unit Htmlview;
+
+interface
+
+uses
+  SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls, StdCtrls,
+  {$ifdef Win32}
+    vwPrint, MetafilePrinter,
+  {$endif}
+  HTMLUn2, Forms, Dialogs, ExtCtrls, ReadHTML, HTMLSubs, Printers, Menus,
+  dsgnintf;
+
+const
+  wm_FormSubmit = wm_User+100;
+  wm_MouseScroll = wm_User+102;
+
+type
+  THTMLBorderStyle = (htFocused, htNone, htSingle);
+  TRightClickParameters = Class(TObject)
+    URL, Target: string;
+    Image: TImageObj;
+    ImageX, ImageY: integer;
+    ClickWord: string;   
+    end;
+  TRightClickEvent = procedure(Sender: TObject; Parameters: TRightClickParameters) of Object; 
+  THotSpotEvent = procedure(Sender: TObject; const SRC: string) of Object;
+  THotSpotClickEvent = procedure(Sender: TObject; const SRC: string;
+                     var Handled: boolean) of Object;
+  TProcessingEvent = procedure(Sender: TObject; ProcessingOn: boolean) of Object;
+  TPagePrinted = procedure( Sender: TObject;
+                              Canvas : TCanvas ;
+                              NumPage, W, H: Integer ;
+                              var StopPrinting : Boolean) of Object;
+  {$ifdef Windows}   
+  TPageEvent = procedure( Sender: TObject; NumPage: Integer ;
+                              var StopPrinting : Boolean) of Object;
+  {$endif}
+  TImageClickEvent = procedure(Sender, Obj: TObject; Button: TMouseButton;
+                       Shift: TShiftState; X, Y: Integer) of Object;   
+  TImageOverEvent = procedure(Sender, Obj: TObject; Shift: TShiftState;
+                       X, Y: Integer) of Object;
+  TMetaRefreshType = procedure(Sender: TObject; Delay: integer; const URL: string) of Object;
+
+  htOptionEnum = (htOverLinksActive,htNoLinkUnderline,htPrintTableBackground);
+  ThtmlViewerOptions = set of htOptionEnum;
+
+  TPaintPanel = class(TCustomPanel)
+  private
+    FOnPaint: TNotifyEvent;
+    FViewer: TComponent;
+    Canvas2: TCanvas;
+    Sizing: boolean;
+    procedure WMEraseBkgnd(var Message: TWMEraseBkgnd); message WM_EraseBkgnd;
+    procedure WMLButtonDblClk(var Message: TWMMouse); message WM_LButtonDblClk; 
+    procedure DoBackground(ACanvas: TCanvas; WmErase: boolean);
+    constructor CreateIt(AOwner: TComponent; Viewer: TComponent);
+    property OnPaint: TNotifyEvent read FOnPaint write FOnPaint;
+  public
+    procedure Paint; override;    
+  end;
+
+{$ifdef Win32}
+  T32ScrollBar = Class(TScrollBar)   {a 32 bit scrollbar}
+  private
+    FPosition: integer;
+    FMin, FMax, FPage: integer;
+    procedure SetPosition(Value: integer);
+    procedure SetMin(Value: Integer);
+    procedure SetMax(Value: Integer);
+    procedure CNVScroll(var Message: TWMVScroll); message CN_VSCROLL;
+  public
+    property Position: integer read FPosition write SetPosition;
+    property Min: integer read FMin write SetMin;
+    property Max: integer read FMax write SetMax;
+    procedure SetParams(APosition, APage, AMin, AMax: Integer);
+  end;
+{$endif}
+
+  THTMLFileType = (HTMLType, TextType, ImgType, OtherType);
+
+  THTMLViewer = class(TWinControl)
+  protected
+    { Private declarations }
+    DontDraw: boolean;
+    FTitle: PString;
+    FURL: PString;
+    FTarget: PString;
+    FBase, FBaseEx: PString;
+    FBaseTarget: PString;
+    FCurrentFile: PString;
+    FNameList: TStringList;
+    FCurrentFileType: THTMLFileType;
+    FOnHotSpotCovered: THotSpotEvent;
+    FOnHotSpotClick: THotSpotClickEvent;
+    FOnBitmapRequest: TGetBitmapEvent;
+    FOnImageRequest: TGetImageEvent;
+    FOnScript: TScriptEvent;
+    FOnFormSubmit: TFormSubmitEvent;
+    FOnHistoryChange: TNotifyEvent;
+    FOnProcessing: TProcessingEvent;
+    FOnInclude: TIncludeType;
+    FOnSoundRequest: TSoundType;
+    FOnMeta: TMetaType;
+    FOnMetaRefresh: TMetaRefreshType;
+    FRefreshURL: string;
+    FRefreshDelay: Integer;
+    FOnRightClick: TRightClickEvent;
+    FOnImageClick: TImageClickEvent;
+    FOnImageOver: TImageOverEvent;
+    FOnObjectClick: TObjectClickEvent;
+    FHistory, FTitleHistory: TStrings;
+    FPositionHistory: TFreeList;
+    FHistoryIndex: integer;
+    FHistoryMaxCount: integer;
+    FFontName: PString;
+    FPreFontName: PString;
+    FFontColor: TColor;
+    FHotSpotColor, FVisitedColor, FOverColor: TColor; 
+    FVisitedMaxCount: integer;
+    FBackGround: TColor;
+    FFontSize: integer;
+    FProcessing: boolean;
+    FAction, FFormTarget, FEncType, FMethod: PString;
+    FStringList: TStringList;
+    FOldWidth: integer;
+    FImageCacheCount: integer;
+    FNoSelect: boolean;
+    FScrollBars: TScrollStyle;
+    FBorderStyle: THTMLBorderStyle;
+    FDither: boolean;
+    FCaretPos: LongInt;
+    FOptions: ThtmlViewerOptions;   
+    sbWidth: integer;
+    ScrollWidth: integer;
+    MaxVertical: LongInt;
+    MouseScrolling: boolean;
+    LeftButtonDown: boolean;
+    Hiliting: boolean;
+    FPrintMarginLeft,
+    FPrintMarginRight,
+    FPrintMarginTop,
+    FPrintMarginBottom: double;
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    FCharset: TFontCharset;
+    {$endif}
+    FOnPrintHeader, FOnPrintFooter: TPagePrinted;
+    FPage: integer;
+    {$ifdef Win32}
+    FOnPageEvent: TPageEvent;
+    {$endif}
+    FOnMouseDouble: TMouseEvent;   
+    HotSpotAction: boolean;
+    FMarginHeight, FMarginWidth: integer;
+    FServerRoot: string;
+    FSectionList: TSectionList;
+    FImageStream: TMemoryStream;
+    FOnExpandName: TExpandNameEvent;
+
+    procedure WMSize(var Message: TWMSize); message WM_SIZE;
+    procedure ScrollTo(Y: LongInt);
+    procedure Scroll(Sender: TObject; ScrollCode: TScrollCode;
+           var ScrollPos: Integer);
+    procedure Layout;
+    procedure SetViewImages(Value: boolean);
+    function GetViewImages: boolean;
+    procedure SetColor(Value: TColor);
+    function GetBase: string;
+    procedure SetBase(Value: string);
+    function GetBaseTarget: string;
+    function GetFURL: string;
+    function GetTitle: string;
+    function GetCurrentFile: string;
+    procedure SetBorderStyle(Value: THTMLBorderStyle);
+    function GetPosition: LongInt;
+    procedure SetPosition(Value: LongInt);
+    function GetScrollPos: integer;
+    procedure SetScrollPos(Value: integer);
+    function GetScrollBarRange: integer;
+    procedure SetHistoryIndex(Value: integer);
+    function GetFontName: TFontName;
+    procedure SetFontName(Value: TFontName);
+    function GetPreFontName: TFontName;
+    procedure SetPreFontName(Value: TFontName);
+    procedure SetFontSize(Value: integer);
+    procedure SetFontColor(Value: TColor);
+    procedure SetHotSpotColor(Value: TColor);
+    procedure SetActiveColor(Value: TColor);   
+    procedure SetVisitedColor(Value: TColor);   
+    procedure SetVisitedMaxCount(Value: integer);  
+    procedure SetOnBitmapRequest(Handler: TGetBitmapEvent);
+    procedure SetOnImageRequest(Handler: TGetImageEvent);
+    procedure SetOnScript(Handler: TScriptEvent);
+    procedure SetOnFormSubmit(Handler: TFormSubmitEvent);
+    function GetOurPalette: HPalette;
+    procedure SetOurPalette(Value: HPalette);
+    procedure SetDither(Value: boolean);
+    procedure SetCaretPos(Value: LongInt);
+    procedure WMGetDlgCode(var Message: TMessage); message WM_GETDLGCODE;
+    procedure BackgroundChange(Sender: TObject);
+    procedure SubmitForm(Sender: TObject; const Action, Target, EncType, Method: string;
+                Results: TStringList);
+    procedure SetImageCacheCount(Value: integer);
+    procedure WMFormSubmit(var Message: TMessage); message WM_FormSubmit;
+    procedure WMMouseScroll(var Message: TMessage); message WM_MouseScroll;
+    procedure SetSelLength(Value: LongInt);
+    function GetSelLength: LongInt;
+    function GetSelText: string;
+    procedure SetNoSelect(Value: boolean);
+    procedure SetHistoryMaxCount(Value: integer);
+    procedure DrawBorder;
+    procedure DoHilite(X, Y: integer);
+    procedure SetScrollBars(Value: TScrollStyle);
+    procedure SetProcessing(Value: boolean);
+    function GetTarget: String;
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    procedure SetCharset(Value: TFontCharset);
+    {$endif}
+    function GetFormControlList: TList;
+    function GetNameList: TStringList;
+    function GetLinkList: TList;
+    procedure SetMarginWidth(Value: integer);
+    procedure SetMarginHeight(Value: integer);
+    procedure SetServerRoot(Value: string);
+    procedure SetOnObjectClick(Handler: TObjectClickEvent);
+    procedure FormControlEnterEvent(Sender: TObject);
+    procedure HandleMeta(Sender: TObject; const HttpEq, Name, Content: string);
+    procedure SetOptions(Value: ThtmlViewerOptions);
+    procedure DoImage(Sender: TObject; const SRC: string; var Stream: TMemoryStream);
+    procedure SetOnExpandName(Handler: TExpandNameEvent); 
+    function GetWordAtCursor(X, Y: LongInt; var St, En: LongInt;
+                                            var AWord: string): boolean;
+
+  protected
+    { Protected declarations }
+    PaintPanel: TPaintPanel;
+    PaintBox: TPaintBox;
+    {$ifdef Win32}
+    VScrollBar: T32ScrollBar;
+    {$else}
+    VScrollBar: TScrollBar;
+    {$endif}
+    HScrollBar: TScrollBar;
+    Sel1: LongInt;
+    Visited: TStringList;     {visited URLs}  
+
+    procedure DoLogic;
+    procedure DoScrollBars;
+    procedure SetupAndLogic;
+    function GetURL(X, Y: integer; var UrlTarg: TUrlTarget;
+             var FormControl: TImageFormControlObj): boolean;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    function GetPalette: HPALETTE; override;
+    procedure HTMLPaint(Sender: TObject); virtual;
+    procedure HTMLMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer); virtual;
+    procedure HTMLMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); virtual;
+    procedure HTMLMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer); virtual;
+    procedure HTMLMouseDblClk(Message: TWMMouse);      
+    procedure URLAction; virtual;
+    function HotSpotClickHandled: boolean; dynamic;
+    procedure LoadFile(const FileName: string; ft: THTMLFileType);
+    procedure PaintWindow(DC: HDC); override;
+    procedure UpdateImageCache;
+    procedure LoadTheStrings(Strings: TStrings; ft: THTMLFileType);
+    procedure AddVisitedLink(const S: string);
+    procedure CheckVisitedLinks;
+
+  public
+    { Public declarations }
+    FrameOwner: TObject;
+
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    function HTMLExpandFilename(const Filename: string): string; virtual;
+    procedure LoadFromFile(const FileName: string);
+    procedure LoadTextFile(const FileName: string);
+    procedure LoadImageFile(const FileName: string);
+    procedure LoadStrings(Strings: TStrings);
+    procedure LoadTextStrings(Strings: TStrings);
+    procedure LoadFromBuffer(Buffer: PChar; BufSize: LongInt);
+    procedure LoadFromStream(AStream: TStream);
+    procedure LoadStream(const URL: string; AStream: TMemoryStream; ft: THTMLFileType);  
+    procedure Print(FromPage, ToPage: integer);
+    function NumPrinterPages: integer;
+    {$ifdef Win32}
+    function PrintPreview(MFPrinter: TMetaFilePrinter): integer;  
+    {$endif}
+    function PositionTo(Dest: string): boolean;
+    function Find(const S: String; MatchCase: boolean): boolean;
+    procedure Clear; virtual;
+    procedure CopyToClipboard;
+    procedure SelectAll;
+    procedure ClearHistory;
+    procedure Reload;
+    procedure BumpHistory(const FileName, Title: string;
+                 OldPos: LongInt; ft: THTMLFileType);
+    function GetSelTextBuf(Buffer: PChar; BufSize: LongInt): LongInt;
+    function InsertImage(const Src: string; Stream: TMemoryStream): boolean;
+    procedure DoEnter; override;    
+    procedure DoExit; override;
+
+    property DocumentTitle: string read GetTitle;
+    property URL: string read GetFURL;
+    property Base: string read GetBase write SetBase;
+    property BaseTarget: string read GetBaseTarget;
+    property Position: LongInt read GetPosition write SetPosition;
+    property VScrollBarPosition: integer read GetScrollPos write SetScrollPos;
+    property VScrollBarRange: integer read GetScrollBarRange;
+    property CurrentFile: string read GetCurrentFile;
+    property History: TStrings read FHistory;
+    property TitleHistory: TStrings read FTitleHistory;
+    property HistoryIndex: integer read FHistoryIndex write SetHistoryIndex;
+    property Processing: boolean read FProcessing;
+    property SelLength: LongInt read GetSelLength write SetSelLength;
+    property SelText: string read GetSelText;
+    property Target: string read GetTarget;
+    property Palette: HPalette read GetOurPalette write SetOurPalette;
+    property Dither: boolean read FDither write SetDither default True;
+    property CaretPos: LongInt read FCaretPos write SetCaretPos;
+    property FormControlList: TList read GetFormControlList;
+    property NameList: TStringList read GetNameList;
+    property LinkList: TList read GetLinkList;
+    property SectionList: TSectionList read FSectionList;
+    {$ifdef Win32}
+    property OnPageEvent: TPageEvent read FOnPageEvent write FOnPageEvent;
+    {$endif}
+    property OnExpandName: TExpandNameEvent read FOnExpandName write SetOnExpandName; 
+
+  published
+    { Published declarations }
+    property OnHotSpotCovered: THotSpotEvent read FOnHotSpotCovered
+             write FOnHotSpotCovered;
+    property OnHotSpotClick: THotSpotClickEvent read FOnHotSpotClick
+             write FOnHotSpotClick;
+    property OnBitmapRequest: TGetBitmapEvent read FOnBitmapRequest
+             write SetOnBitmapRequest;
+    property OnImageRequest: TGetImageEvent read FOnImageRequest
+             write SetOnImageRequest;
+    property OnScript: TScriptEvent read FOnScript
+             write SetOnScript;
+    property OnFormSubmit: TFormSubmitEvent read FOnFormSubmit
+             write SetOnFormSubmit;
+    property OnHistoryChange: TNotifyEvent read FOnHistoryChange
+             write FOnHistoryChange;
+    property ViewImages: boolean read GetViewImages write SetViewImages;
+    property Enabled;
+    property TabStop;
+    property TabOrder;
+    property Align;
+    property Name;
+    property Tag;
+    property PopupMenu;
+    property ShowHint;
+    property Height default 150;
+    property Width default 150;
+    property DefBackground: TColor read FBackground write SetColor default clBtnFace;
+    property BorderStyle: THTMLBorderStyle read FBorderStyle write SetBorderStyle;
+    property Visible;
+    property HistoryMaxCount: integer read FHistoryMaxCount write SetHistoryMaxCount;
+    property DefFontName: TFontName read GetFontName write SetFontName;
+    property DefPreFontName: TFontName read GetPreFontName write SetPreFontName;
+    property DefFontSize: integer read FFontSize write SetFontSize default 12;
+    property DefFontColor: TColor read FFontColor write SetFontColor
+             default clBtnText;
+    property DefHotSpotColor: TColor read FHotSpotColor write SetHotSpotColor
+             default clBlue;
+    property DefVisitedLinkColor: TColor read FVisitedColor write SetVisitedColor
+             default clPurple;       
+    property DefOverLinkColor: TColor read FOverColor write SetActiveColor
+             default clBlue;        
+    property VisitedMaxCount: integer read FVisitedMaxCount write SetVisitedMaxCount default 50;
+    property ImageCacheCount: integer read FImageCacheCount
+                write SetImageCacheCount default 5;
+    property NoSelect: boolean read FNoSelect write SetNoSelect;
+    property ScrollBars: TScrollStyle read FScrollBars write SetScrollBars default ssBoth;
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    property CharSet: TFontCharset read FCharSet write SetCharset;
+    {$endif}
+    property MarginHeight: integer read FMarginHeight write SetMarginHeight default 5;
+    property MarginWidth: integer read FMarginWidth write SetMarginWidth default 10;
+    property ServerRoot: string read FServerRoot write SetServerRoot;
+    property PrintMarginLeft: double read FPrintMarginLeft write FPrintMarginLeft;
+    property PrintMarginRight: double read FPrintMarginRight write FPrintMarginRight;
+    property PrintMarginTop: double read FPrintMarginTop write FPrintMarginTop;
+    property PrintMarginBottom: double read FPrintMarginBottom write FPrintMarginBottom;
+    property htOptions: ThtmlViewerOptions read FOptions write SetOptions;
+
+    property OnMouseMove;
+    property OnMouseUp;
+    property OnMouseDown;
+    property OnKeyDown;
+    property OnKeyUp;
+    property OnKeyPress;
+    property OnEnter;
+    property OnProcessing: TProcessingEvent read FOnProcessing write FOnProcessing;
+    property OnPrintHeader: TPagePrinted read FOnPrintHeader write FOnPrintHeader;
+    property OnPrintFooter: TPagePrinted read FOnPrintFooter write FOnPrintFooter;
+    property OnInclude: TIncludeType read FOnInclude write FOnInclude;
+    property OnSoundRequest: TSoundType read FOnSoundRequest write FOnSoundRequest;
+    property OnMeta: TMetaType read FOnMeta write FOnMeta;
+    property OnMetaRefresh: TMetaRefreshType read FOnMetaRefresh write FOnMetaRefresh;
+    property OnImageClick: TImageClickEvent read FOnImageClick write FOnImageClick;
+    property OnImageOver: TImageOverEvent read FOnImageOver write FOnImageOver;
+    property OnObjectClick: TObjectClickEvent read FOnObjectClick write SetOnObjectClick;
+    property OnRightClick:  TRightClickEvent read FOnRightClick write FOnRightClick;
+    property OnMouseDouble: TMouseEvent read FOnMouseDouble write FOnMouseDouble;
+    end;
+
+  THTMLEditor = class(TComponentEditor)
+    function GetVerbCount: Integer; Override;
+    function GetVerb(index: Integer): String; Override;
+    procedure ExecuteVerb(index: Integer); Override;
+    end;
+
+procedure Register;
+
+implementation

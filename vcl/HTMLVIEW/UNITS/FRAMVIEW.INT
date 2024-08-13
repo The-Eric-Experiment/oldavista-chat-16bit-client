@@ -1,0 +1,541 @@
+{Version 7.2}
+{Delphi 1 version 7.03}
+{*********************************************************}
+{*                     FRAMVIEW.PAS                      *}
+{*                Copyright (c) 1997-9 by                *}
+{*                   L. David Baldwin                    *}
+{*                 All rights reserved.                  *}
+{*********************************************************}
+
+{$i htmlcons.inc}
+
+unit FramView;
+
+interface
+
+uses
+  SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
+  Forms, Dialogs, StdCtrls, ExtCtrls, Menus, htmlsubs, htmlview, htmlun2,
+  readHTML, dsgnintf;
+
+type
+  {common to TFrameViewer and TFrameBrowser}
+  THotSpotTargetClickEvent = procedure(Sender: TObject; const Target, URL: string;
+                     var Handled: boolean) of Object;
+  THotSpotTargetEvent = procedure(Sender: TObject; const Target, URL: string) of Object;
+  TWindowRequestEvent = procedure(Sender: TObject; const Target, URL: string) of Object;
+  fvOptionEnum = (fvMetaRefresh, fvNoBorder, fvOverLinksActive, fvNoLinkUnderline,
+                  fvPrintTableBackground);   
+  TFrameViewerOptions = set of fvOptionEnum;
+
+  {for TFrameViewer}
+  TStreamRequestEvent = procedure(Sender: TObject; const SRC: string;
+                           var Stream: TStream) of Object;
+  TBufferRequestEvent = procedure(Sender: TObject; const SRC: string;
+                           var Buffer: PChar; var BuffSize: LongInt) of Object;
+  TStringsRequestEvent = procedure(Sender: TObject; const SRC: string;
+                           var Strings: TStrings) of Object;
+  TFileRequestEvent = procedure(Sender: TObject; const SRC: string;
+                           var NewName: string) of Object;
+
+{common base class for TFrameViewer and TFrameBrowser}
+  TFVBase = class(TFrameViewerBase)  {TFrameViewerBase is in ReadHTML.pas}
+  protected
+    FURL: PString;
+    FTarget: PString;
+    FOnHotSpotTargetClick: THotSpotTargetClickEvent;
+    FOnHotSpotTargetCovered: THotSpotTargetEvent;
+    ProcessList: TList;   {list of viewers that are processing}
+    FViewImages: boolean;
+    FImageCacheCount: integer;
+    FProcessing, FViewerProcessing: boolean;
+    FNoSelect: boolean;
+    FOnHistoryChange: TNotifyEvent;
+    FOnBitmapRequest: TGetBitmapEvent;
+    FOnImageRequest: TGetImageEvent;
+    FOnBlankWindowRequest: TWindowRequestEvent;
+    FOnMeta: TMetaType;
+    FOnScript: TScriptEvent;
+    FOnImageClick: TImageClickEvent;
+    FOnImageOver: TImageOverEvent;
+    FOnObjectClick: TObjectClickEvent;
+    FOnRightClick: TRightClickEvent;
+    FOnMouseDouble: TMouseEvent;   
+    FServerRoot: string;
+    FOnInclude: TIncludeType;
+    FOnSoundRequest: TSoundType;
+    FPrintMarginLeft,
+    FPrintMarginRight,
+    FPrintMarginTop,
+    FPrintMarginBottom: double;
+    FOnPrintHeader, FOnPrintFooter: TPagePrinted;
+    FVisitedMaxCount: integer;    
+    FBackground: TColor;
+    FFontName: PString;
+    FPreFontName: PString;
+    FFontColor: TColor;
+    FHotSpotColor, FVisitedColor, FOverColor: TColor; 
+    FFontSize: integer;
+    FCursor: TCursor;
+    FHistoryMaxCount: integer;
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    FCharset: TFontCharset;
+    {$endif}
+    FOnProcessing: TProcessingEvent;
+    FHistory, FTitleHistory: TStrings;
+    FDither: boolean;
+    {$ifdef Win32}
+    FOnPanelCreate: TPanelCreateEvent;
+    FOnPanelDestroy: TPanelDestroyEvent;
+    {$endif}
+    Visited: TStringList;     {visited URLs}
+
+    function GetCurViewerCount: integer; virtual; abstract;
+    function GetCurViewer(I: integer): ThtmlViewer; virtual; abstract;
+    function GetFURL: string;
+    function GetProcessing: boolean;
+    function GetTarget: String;
+    procedure SetViewImages(Value: boolean);
+    procedure SetImageCacheCount(Value: integer);
+    procedure SetNoSelect(Value: boolean);
+    procedure SetOnBitmapRequest(Handler: TGetBitmapEvent);
+    procedure SetOnMeta(Handler: TMetaType);
+    procedure SetOnScript(Handler: TScriptEvent);
+    procedure SetImageOver(Handler: TImageOverEvent);
+    procedure SetImageClick(Handler: TImageClickEvent);
+    procedure SetOnObjectClick(Handler: TObjectClickEvent);
+    procedure SetOnRightClick(Handler: TRightClickEvent);
+    procedure SetMouseDouble(Handler: TMouseEvent);  
+    procedure SetServerRoot(Value: string);
+    procedure SetPrintMarginLeft(Value: Double);
+    procedure SetPrintMarginRight(Value: Double);
+    procedure SetPrintMarginTop(Value: Double);
+    procedure SetPrintMarginBottom(Value: Double);
+    procedure SetPrintHeader(Handler: TPagePrinted);
+    procedure SetPrintFooter(Handler: TPagePrinted);
+    procedure SetVisitedMaxCount(Value: integer);
+    procedure SetColor(Value: TColor);
+    function GetFontName: TFontName;
+    procedure SetFontName(Value: TFontName);
+    function GetPreFontName: TFontName;
+    procedure SetPreFontName(Value: TFontName);
+    procedure SetFontSize(Value: integer);
+    procedure SetFontColor(Value: TColor);
+    procedure SetHotSpotColor(Value: TColor);
+    procedure SetActiveColor(Value: TColor);
+    procedure SetVisitedColor(Value: TColor);
+    procedure SetHistoryMaxCount(Value: integer);
+    procedure SetCursor(Value: TCursor);
+    function GetSelLength: LongInt;
+    procedure SetSelLength(Value: Longint);
+    {$ifdef Win32}
+    function GetSelStart: LongInt;
+    procedure SetSelStart(Value: Longint);
+    {$endif}
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    procedure SetCharset(Value: TFontCharset);
+    {$endif}
+    function GetOurPalette: HPalette;
+    procedure SetOurPalette(Value: HPalette);
+    procedure SetDither(Value: boolean);
+    function GetCaretPos: LongInt;
+    procedure SetCaretPos(Value: LongInt);
+    function GetSelText: string;
+    function GetSelTextBuf(Buffer: PChar; BufSize: LongInt): LongInt;
+    procedure SetProcessing(Local, Viewer: boolean);
+    procedure CheckProcessing(Sender: TObject; ProcessingOn: boolean);
+    {$ifdef Win32}
+    procedure SetOnPanelCreate(Handler: TPanelCreateEvent);
+    procedure SetOnPanelDestroy(Handler: TPanelDestroyEvent);
+    {$endif}
+
+    function GetActiveViewer: ThtmlViewer;  virtual; abstract;
+
+    property CurViewer[I: integer]: ThtmlViewer read GetCurViewer;
+    property OnBitmapRequest: TGetBitmapEvent read FOnBitmapRequest
+             write SetOnBitmapRequest;
+    property ServerRoot: string read FServerRoot write SetServerRoot;
+  public
+    procedure ClearHistory; virtual; abstract;
+    procedure SetFocus; override;
+    function InsertImage(Viewer: ThtmlViewer; const Src: string; Stream: TMemoryStream): boolean;
+    function NumPrinterPages: integer;
+    procedure Print(FromPage, ToPage: integer);
+
+    property URL: string read GetFURL;
+    property Target: string read GetTarget;
+    property Processing: boolean read GetProcessing;
+    property ActiveViewer: ThtmlViewer read GetActiveViewer;
+    property History: TStrings read FHistory;
+    property TitleHistory: TStrings read FTitleHistory;
+    property Palette: HPalette read GetOurPalette write SetOurPalette;
+    property Dither: boolean read FDither write SetDither default True;
+    property CaretPos: LongInt read GetCaretPos write SetCaretPos;
+    property SelText: string read GetSelText;
+    procedure CopyToClipboard;
+    procedure SelectAll;
+    function Find(const S: String; MatchCase: boolean): boolean;
+
+  published
+    property OnHotSpotTargetCovered: THotSpotTargetEvent read FOnHotSpotTargetCovered
+             write FOnHotSpotTargetCovered;
+    property OnHotSpotTargetClick: THotSpotTargetClickEvent read FOnHotSpotTargetClick
+             write FOnHotSpotTargetClick;
+    property ViewImages: boolean read FViewImages write SetViewImages default True;
+    property ImageCacheCount: integer read FImageCacheCount
+             write SetImageCacheCount default 5;
+    property OnHistoryChange: TNotifyEvent read FOnHistoryChange
+             write FOnHistoryChange;
+    property NoSelect: boolean read FNoSelect write SetNoSelect;
+
+    property OnBlankWindowRequest: TWindowRequestEvent read FOnBlankWindowRequest
+             write FOnBlankWindowRequest;
+    property OnScript: TScriptEvent read FOnScript write SetOnScript;
+    property OnImageClick: TImageClickEvent read FOnImageClick write SetImageClick;
+    property OnImageOver: TImageOverEvent read FOnImageOver write SetImageOver;
+    property OnObjectClick: TObjectClickEvent read FOnObjectClick write SetOnObjectClick;
+    property OnRightClick:  TRightClickEvent read FOnRightClick write SetOnRightClick;
+    property OnMouseDouble: TMouseEvent read FOnMouseDouble write SetMouseDouble;  
+    property OnInclude: TIncludeType read FOnInclude write FOnInclude;
+    property OnSoundRequest: TSoundType read FOnSoundRequest write FOnSoundRequest;
+    property PrintMarginLeft: double read FPrintMarginLeft write SetPrintMarginLeft;
+    property PrintMarginRight: double read FPrintMarginRight write SetPrintMarginRight;
+    property PrintMarginTop: double read FPrintMarginTop write SetPrintMarginTop;
+    property PrintMarginBottom: double read FPrintMarginBottom write SetPrintMarginBottom;
+    property OnPrintHeader: TPagePrinted read FOnPrintHeader write SetPrintHeader;
+    property OnPrintFooter: TPagePrinted read FOnPrintFooter write SetPrintFooter;
+    property OnMeta: TMetaType read FOnMeta write SetOnMeta;   
+    {$ifdef Win32}
+    property OnPanelCreate: TPanelCreateEvent read FOnPanelCreate write SetOnPanelCreate;
+    property OnPanelDestroy: TPanelDestroyEvent read FOnPanelDestroy write SetOnPanelDestroy;
+    {$endif}
+
+    property DefBackground: TColor read FBackground write SetColor default clBtnFace;
+
+    property DefFontName: TFontName read GetFontName write SetFontName;
+    property DefPreFontName: TFontName read GetPreFontName write SetPreFontName;
+    property DefFontSize: integer read FFontSize write SetFontSize default 12;
+    property DefFontColor: TColor read FFontColor write SetFontColor
+             default clBtnText;
+    property DefHotSpotColor: TColor read FHotSpotColor write SetHotSpotColor
+             default clBlue;
+    property DefVisitedLinkColor: TColor read FVisitedColor write SetVisitedColor
+             default clPurple;       
+    property DefOverLinkColor: TColor read FOverColor write SetActiveColor
+             default clBlue;        
+    property VisitedMaxCount: integer read FVisitedMaxCount write SetVisitedMaxCount default 50; 
+    property HistoryMaxCount: integer read FHistoryMaxCount write SetHistoryMaxCount;
+    property Cursor: TCursor read FCursor write SetCursor default crIBeam;
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    property CharSet: TFontCharset read FCharSet write SetCharset;
+    {$endif}
+    property SelLength: LongInt read GetSelLength write SetSelLength;
+    {$ifdef Win32}
+    property SelStart: LongInt read GetSelStart write SetSelStart;
+    {$endif}
+    property OnProcessing: TProcessingEvent read FOnProcessing write FOnProcessing;
+
+    property Align;
+    property Enabled;
+    property PopupMenu;
+    property ShowHint;
+    property TabOrder;
+    property TabStop default False;
+    property Visible;
+    property Height default 150;
+    property Width default 150;
+    property OnEnter;
+    property OnExit;
+    property OnMouseDown;
+    property OnMouseMove;
+    property OnMouseUp;
+    property OnKeyDown;
+    property OnKeyUp;
+    property OnKeyPress;
+  end;
+
+{TFrameViewer Types}
+  PEventRec = ^EventRec;    
+  EventRec = record
+    LStyle: LoadStyleType;
+    NewName: string;
+    Strings: TStrings;
+    Stream: TStream;
+    Buffer: PChar;
+    BuffSize: LongInt;
+    end;
+
+  TFrameSet = class;
+  TSubFrameSet = class;
+
+  TFrameBase = class(TCustomPanel)   {base class for other classes}
+    MasterSet: TFrameSet;   {Points to top (master) TFrameSet}
+  private
+    UnLoaded: boolean;
+    procedure UpdateFrameList; virtual; abstract;
+  protected
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    LocalCharSet: TFontCharset;      
+    {$endif}
+    procedure FVMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); virtual; abstract;
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+           Y: Integer); virtual; abstract;
+    procedure FVMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); virtual; abstract;
+    function CheckNoResize(var Lower, Upper: boolean): boolean; virtual; abstract;
+    procedure LoadFiles(PEV: PEventRec); virtual; abstract;
+    procedure ReLoadFiles(APosition: LongInt); virtual; abstract;
+    procedure UnloadFiles; virtual; abstract;
+
+  public
+    LOwner: TSubFrameSet;
+    procedure InitializeDimensions(X, Y, Wid, Ht: integer); virtual; abstract;
+  end;
+
+  TFrame = class(TFrameBase) {TFrame holds a ThtmlViewer or TSubFrameSet}
+  protected
+    NoScroll: boolean;
+    MarginHeight, MarginWidth: integer;
+    frHistory: TStringList;
+    frPositionHistory: TFreeList;
+    frHistoryIndex: integer;
+    RefreshTimer: TTimer;     
+    NextFile: string;      
+
+    procedure CreateViewer;
+    procedure frBumpHistory(const NewName: string; NewPos, OldPos: LongInt);
+    procedure frBumpHistory1(const NewName: string; Pos: LongInt);
+    procedure frSetHistoryIndex(Value: integer);
+    procedure UpdateFrameList; override;
+    procedure RefreshEvent(Sender: TObject; Delay: integer; const URL: string);
+    procedure RefreshTimerTimer(Sender: TObject);
+
+  protected
+    procedure FVMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); override;
+    procedure FVMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    function CheckNoResize(var Lower, Upper: boolean): boolean; override;
+    procedure LoadFiles(PEV: PEventRec); override;
+    procedure ReLoadFiles(APosition: LongInt); override;
+    procedure UnloadFiles; override;
+    procedure frLoadFromFile(const FName, Dest: string; Bump, Reload: boolean);  
+    procedure ReloadFile(const FName: string; APosition: LongInt);
+  public
+    Viewer: ThtmlViewer;    {the ThtmlViewer it holds if any}
+    ViewerPosition: LongInt;
+    FrameSet: TSubFrameSet; {or the TSubFrameSet it holds}
+    Source,         {Dos filename or URL for this frame}
+    Destination: PString;    {Destination offset for this frame}
+    WinName: PString;     {window name, if any, for this frame}
+    NoReSize: boolean;
+
+    constructor CreateIt(AOwner: TComponent; L: TAttributeList;
+              Master: TFrameSet; const Path: string);
+    destructor Destroy; override;
+    procedure InitializeDimensions(X, Y, Wid, Ht: integer); override;
+    procedure RePaint; override;
+  end;
+
+  TSubFrameSet = class(TFrameBase)  {can contain one or more TFrames and/or TSubFrameSets}
+  Protected
+    FBase: PString;
+    FBaseTarget: PString;
+    OuterBorder: integer;
+    BorderSize: integer;
+    FRefreshURL: string;
+    FRefreshDelay: integer;
+    RefreshTimer: TTimer;
+    NextFile: string;
+
+    procedure ClearFrameNames;
+    procedure AddFrameNames;
+    procedure UpdateFrameList; override;
+    procedure HandleMeta(Sender: TObject; const HttpEq, Name, Content: string);
+    procedure SetRefreshTimer;
+    procedure RefreshTimerTimer(Sender: Tobject); virtual;
+  protected
+    OldRect: TRect;
+    function GetRect: TRect;
+    procedure FVMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); override;
+    procedure FVMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure FindLineAndCursor(Sender: TObject; X, Y: integer);
+    function NearBoundary(X, Y: integer): boolean;
+    function CheckNoResize(var Lower, Upper: boolean): boolean; override;
+    procedure Clear; virtual;
+    procedure LoadFromFile(const FName, Dest: string);
+  public
+    First: boolean;     {First time thru}
+    Rows: boolean;          {set if row frameset, else column frameset}
+    List: TFreeList;   {list of TFrames and TSubFrameSets in this TSubFrameSet}
+    Dim,    {col width or row height as read.  Blanks may have been added}
+    DimF,   {col width or row height in pixels as calculated and displayed}
+    Lines   {pixel pos of lines, Lines[1]=0, Lines[DimCount]=width|height}
+         : array[0..20] of SmallInt;
+    Fixed   {true if line not allowed to be dragged}
+         : array[0..20] of boolean;
+    DimCount: integer;
+    DimFTot: integer;
+    LineIndex: integer;
+
+    constructor CreateIt(AOwner: TComponent; Master: TFrameSet);
+    destructor Destroy; override;
+    function AddFrame(Attr: TAttributeList; const FName: string): TFrame;
+    procedure EndFrameSet; virtual;
+    procedure DoAttributes(L: TAttributeList);
+    procedure LoadFiles(PEV: PEventRec); override;
+    procedure ReLoadFiles(APosition: LongInt); override;
+    procedure UnloadFiles; override;
+    procedure InitializeDimensions(X, Y, Wid, Ht: integer); override;
+    procedure CalcSizes(Sender: TObject);
+  end;
+
+  TFrameViewer = class;
+
+  TFrameSet = class(TSubFrameSet)  {only one of these showing, others may be held as History}
+  protected
+    FTitle: PString;
+    FCurrentFile: PString;
+    FrameNames: TStringList; {list of Window names and their TFrames}
+    Viewers: TList;   {list of all ThtmlViewer pointers}
+    Frames: TList;    {list of all the Frames contained herein}
+    HotSet: TFrameBase;     {owner of line we're moving}
+    OldWidth, OldHeight: integer;
+    NestLevel: integer;
+    FActive: ThtmlViewer;   {the most recently active viewer}
+
+    function RequestEvent: boolean;
+    function TriggerEvent(const Src: string; PEV: PEventRec): boolean;
+    procedure ClearForwards;
+    procedure UpdateFrameList; override;
+    procedure RefreshTimerTimer(Sender: Tobject); override; 
+
+  protected
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); override;
+    procedure CheckActive(Sender: TObject);
+    function GetActive: ThtmlViewer;
+  public
+    FrameViewer: TFrameViewer;
+
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure EndFrameSet; override;
+    procedure LoadFromFile(const FName, Dest: string);
+    procedure Clear; override;
+    procedure CalcSizes(Sender: TObject);
+    procedure RePaint; override;
+  end;
+
+  TFrameViewer = class(TFVBase) 
+  protected
+    FPosition: TList;
+    FHistoryIndex: integer;
+    FOnFormSubmit: TFormSubmitEvent;
+    FOptions: TFrameViewerOptions;
+
+    FOnStreamRequest: TStreamRequestEvent;
+    FOnBufferRequest: TBufferRequestEvent;
+    FOnStringsRequest: TStringsRequestEvent;
+    FOnFileRequest: TFileRequestEvent;
+
+    FBaseEx: PString;
+
+    procedure SetOnImageRequest(Handler: TGetImageEvent);
+
+    function GetBase: string;
+    procedure SetBase(Value: string);
+    function GetBaseTarget: string;
+    function GetTitle: string;
+    function GetCurrentFile: string;
+    procedure HotSpotCovered(Sender: TObject; const SRC: string);
+    procedure SetHistoryIndex(Value: integer);
+
+    procedure SetOnFormSubmit(Handler: TFormSubmitEvent);
+    procedure ChkFree(Obj: TObject);
+    function GetActiveBase: string;
+    function GetActiveTarget: string;
+    function GetFwdButtonEnabled: boolean;
+    function GetBackButtonEnabled: boolean;
+    procedure SetOptions(Value: TFrameViewerOptions);
+
+  protected
+    CurFrameSet: TFrameSet;  {the TFrameSet being displayed}
+
+    function GetCurViewerCount: integer; override;
+    function GetCurViewer(I: integer): ThtmlViewer; override;
+    function GetActiveViewer: ThtmlViewer;  override;
+
+
+    procedure BumpHistory(OldFrameSet: TFrameSet; OldPos: LongInt);
+    procedure BumpHistory1(const FileName, Title: string;
+                 OldPos: LongInt; ft: ThtmlFileType);
+    procedure BumpHistory2(OldPos: LongInt);
+    function HotSpotClickHandled: boolean;
+    procedure LoadFromFileInternal(const FName: string);
+
+    procedure AddFrame(FrameSet: TObject; Attr: TAttributeList; const FName: string); override;
+    function CreateSubFrameSet(FrameSet: TObject): TObject; override;
+    procedure DoAttributes(FrameSet: TObject; Attr: TAttributeList); override;
+    procedure EndFrameSet(FrameSet: TObject); override;
+    procedure AddVisitedLink(const S: string);
+    procedure CheckVisitedLinks;
+
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure LoadFromFile(const FName: string);
+    procedure Load(const SRC: string);
+    procedure LoadTargetFromFile(const Target, FName: string);
+    procedure LoadImageFile(const FName: string);
+    procedure Reload;
+    procedure Clear;
+    procedure HotSpotClick(Sender: TObject; const AnURL: string;
+              var Handled: boolean);
+    function HTMLExpandFilename(const Filename: string): string; virtual;
+    procedure ClearHistory; override;
+    function ViewerFromTarget(const Target: string): ThtmlViewer;
+    procedure GoBack;
+    procedure GoFwd;
+    procedure RePaint; override;
+
+    property Base: string read GetBase write SetBase;
+    property BaseTarget: string read GetBaseTarget;
+    property DocumentTitle: string read GetTitle;
+    property CurrentFile: string read GetCurrentFile;
+    property HistoryIndex: integer read FHistoryIndex write SetHistoryIndex;
+
+  published
+    property OnImageRequest: TGetImageEvent read FOnImageRequest
+             write SetOnImageRequest;
+    property OnFormSubmit: TFormSubmitEvent read FOnFormSubmit
+             write SetOnFormSubmit;
+    property FwdButtonEnabled: boolean read GetFwdButtonEnabled;
+    property BackButtonEnabled: boolean read GetBackButtonEnabled;
+    property fvOptions: TFrameViewerOptions read FOptions write SetOptions;
+
+    property OnStreamRequest: TStreamRequestEvent read FOnStreamRequest write FOnStreamRequest;
+    property OnStringsRequest: TStringsRequestEvent read FOnStringsRequest write FOnStringsRequest;
+    property OnBufferRequest: TBufferRequestEvent read FOnBufferRequest write FOnBufferRequest;
+    property OnFileRequest: TFileRequestEvent read FOnFileRequest write FOnFileRequest;
+
+    property OnBitmapRequest;
+    property ServerRoot;
+  end;
+
+  TFMVEditor = class(TComponentEditor)
+    function GetVerbCount: Integer; Override;
+    function GetVerb(index: Integer): String; Override;
+    procedure ExecuteVerb(index: Integer); Override;
+    end;
+
+    procedure Register;
+
+implementation

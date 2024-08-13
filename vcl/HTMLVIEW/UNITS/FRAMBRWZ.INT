@@ -1,0 +1,287 @@
+{Version 7.2}
+{Delphi 1 version 7.03}
+{*********************************************************}
+{*                     FRAMBRWZ.PAS                      *}
+{*                Copyright (c) 1997-9 by                *}
+{*                   L. David Baldwin                    *}
+{*                 All rights reserved.                  *}
+{*********************************************************}
+
+{$i htmlcons.inc}
+
+unit FramBrwz;
+
+interface
+
+uses
+  SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
+  Forms, Dialogs, StdCtrls, ExtCtrls, Menus, htmlsubs, htmlview, htmlun2,
+  readHTML, dsgnintf, FramView;
+
+type
+  TGetPostRequestEvent = procedure(Sender: TObject; IsGet: boolean; const URL, Query: string;
+                       Reload: boolean; var NewURL: string; var DocType: ThtmlFileType; var Stream: TMemoryStream) of Object;
+
+  TbrFrameSet = class;
+  TbrSubFrameSet = class;
+
+  TbrFrameBase = class(TCustomPanel)   {base class for other classes}
+    MasterSet: TbrFrameSet;   {Points to top (master) TbrFrameSet}
+  private
+    URLBase: string;
+    UnLoaded: boolean;
+    procedure UpdateFrameList; virtual; abstract;
+  protected
+    {$ifdef Delphi3_4_CppBuilder3_4}  {Delphi 3, C++Builder 3, 4}
+    LocalCharSet: TFontCharset;       
+    {$endif}
+    procedure FVMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); virtual; abstract;
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+           Y: Integer); virtual; abstract;
+    procedure FVMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); virtual; abstract;
+    function CheckNoResize(var Lower, Upper: boolean): boolean; virtual; abstract;
+    procedure LoadBrzFiles; virtual; abstract;
+    procedure ReLoadFiles(APosition: LongInt); virtual; abstract;
+    procedure UnloadFiles; virtual; abstract;
+
+  public
+    LOwner: TbrSubFrameSet;
+    procedure InitializeDimensions(X, Y, Wid, Ht: integer); virtual; abstract;
+  end;
+
+  TbrFrame = class(TbrFrameBase) {TbrFrame holds a ThtmlViewer or TbrSubFrameSet}
+  protected
+    NoScroll: boolean;
+    MarginHeight, MarginWidth: integer;
+    frHistory: TStringList;
+    frPositionHistory: TFreeList;
+    frHistoryIndex: integer;
+    RefreshTimer: TTimer;     
+    NextFile: string;      
+
+    procedure CreateViewer;
+    procedure frBumpHistory(const NewName: string; NewPos, OldPos: LongInt);
+    procedure frBumpHistory1(const NewName: string; Pos: LongInt);
+    procedure frSetHistoryIndex(Value: integer);
+    procedure UpdateFrameList; override;
+    procedure RefreshEvent(Sender: TObject; Delay: integer; const URL: string);
+    procedure RefreshTimerTimer(Sender: TObject);
+
+  protected
+    procedure FVMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); override;
+    procedure FVMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    function CheckNoResize(var Lower, Upper: boolean): boolean; override;
+    procedure ReLoadFiles(APosition: LongInt); override;
+    procedure UnloadFiles; override;
+    procedure LoadBrzFiles; override;
+    procedure frLoadFromBrzFile(const URL, Dest, Query: string; Bump, IsGet, Reload: boolean);
+    procedure ReloadFile(const FName: string; APosition: LongInt);
+    procedure URLExpandName(Sender: TObject; const SRC: string; var Rslt: string); 
+  public
+    Viewer: ThtmlViewer;    {the ThtmlViewer it holds if any}
+    ViewerPosition: LongInt;
+    FrameSet: TbrSubFrameSet; {or the TbrSubFrameSet it holds}
+    Source,         {Dos filename or URL for this frame}
+    Destination: PString;    {Destination offset for this frame}
+    TheStream: TMemoryStream;   
+    TheStreamType: ThtmlFileType;   
+    WinName: PString;     {window name, if any, for this frame}
+    NoReSize: boolean;
+
+    constructor CreateIt(AOwner: TComponent; L: TAttributeList;
+              Master: TbrFrameSet; const Path: string);
+    destructor Destroy; override;
+    procedure InitializeDimensions(X, Y, Wid, Ht: integer); override;
+    procedure RePaint; override;
+  end;
+
+  TbrSubFrameSet = class(TbrFrameBase)  {can contain one or more TbrFrames and/or TSubFrameSets}
+  protected
+    FBase: PString;
+    FBaseTarget: PString;
+    OuterBorder: integer;
+    BorderSize: integer;
+    FRefreshURL: string;
+    FRefreshDelay: integer;
+    RefreshTimer: TTimer;
+    NextFile: string;
+
+    procedure ClearFrameNames;
+    procedure AddFrameNames;
+    procedure UpdateFrameList; override;
+    procedure HandleMeta(Sender: TObject; const HttpEq, Name, Content: string);
+    procedure SetRefreshTimer;
+    procedure RefreshTimerTimer(Sender: Tobject); virtual;
+  protected
+    OldRect: TRect;
+    function GetRect: TRect;
+    procedure FVMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); override;
+    procedure FVMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
+    procedure FindLineAndCursor(Sender: TObject; X, Y: integer);
+    function NearBoundary(X, Y: integer): boolean;
+    function CheckNoResize(var Lower, Upper: boolean): boolean; override;
+    procedure Clear; virtual;
+
+  public
+    First: boolean;     {First time thru}
+    Rows: boolean;          {set if row frameset, else column frameset}
+    List: TFreeList;   {list of TbrFrames and TSubFrameSets in this TbrSubFrameSet}
+    Dim,    {col width or row height as read.  Blanks may have been added}
+    DimF,   {col width or row height in pixels as calculated and displayed}
+    Lines   {pixel pos of lines, Lines[1]=0, Lines[DimCount]=width|height}
+         : array[0..20] of SmallInt;
+    Fixed   {true if line not allowed to be dragged}
+         : array[0..20] of boolean;
+    DimCount: integer;
+    DimFTot: integer;
+    LineIndex: integer;
+
+    constructor CreateIt(AOwner: TComponent; Master: TbrFrameSet);
+    destructor Destroy; override;
+    function AddFrame(Attr: TAttributeList; const FName: string): TbrFrame;
+    procedure EndFrameSet; virtual;
+    procedure DoAttributes(L: TAttributeList);
+    procedure LoadBrzFiles; override;
+    procedure ReLoadFiles(APosition: LongInt); override;
+    procedure UnloadFiles; override;
+    procedure InitializeDimensions(X, Y, Wid, Ht: integer); override;
+    procedure CalcSizes(Sender: TObject);
+  end;
+
+  TFrameBrowser = class;
+
+  TbrFrameSet = class(TbrSubFrameSet)  {only one of these showing, others may be held as History}
+  protected
+    FTitle: PString;
+    FCurrentFile: PString;
+    FrameNames: TStringList; {list of Window names and their TFrames}
+    Viewers: TList;   {list of all ThtmlViewer pointers}
+    Frames: TList;    {list of all the Frames contained herein}
+    HotSet: TbrFrameBase;     {owner of line we're moving}
+    OldWidth, OldHeight: integer;
+    NestLevel: integer;
+    FActive: ThtmlViewer;   {the most recently active viewer}
+
+    procedure ClearForwards;
+    procedure UpdateFrameList; override;
+    procedure RefreshTimerTimer(Sender: Tobject); override; 
+
+  protected
+    procedure FVMouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer); override;
+    procedure CheckActive(Sender: TObject);
+    function GetActive: ThtmlViewer;
+  public
+    FrameViewer: TFrameBrowser;
+
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure EndFrameSet; override;
+    procedure LoadFromBrzFile(Stream: TMemoryStream; StreamType: ThtmlFileType;
+                const URL, Dest: string);
+    procedure Clear; override;
+    procedure CalcSizes(Sender: TObject);
+    procedure RePaint; override;
+  end;
+
+  TFrameBrowser = class(TFVBase)
+  protected
+    FPosition: TList;
+    FHistoryIndex: integer;
+    FOnGetPostRequest: TGetPostRequestEvent;
+    FOnImageRequest: TGetImageEvent;
+    FOptions: TFrameViewerOptions;
+    FOnViewerClear: TNotifyEvent;
+
+    FBaseEx: PString;
+
+    function GetBase: string;
+    procedure SetBase(Value: string);
+    function GetBaseTarget: string;
+    function GetTitle: string;
+    function GetCurrentFile: string;
+    procedure HotSpotCovered(Sender: TObject; const SRC: string);
+    procedure SetHistoryIndex(Value: integer);
+
+    procedure ChkFree(Obj: TObject);
+    function GetActiveTarget: string;
+    function GetFwdButtonEnabled: boolean;
+    function GetBackButtonEnabled: boolean;
+    procedure SetOnImageRequest(const Value: TGetImageEvent);
+    procedure SetOptions(Value: TFrameViewerOptions);
+
+  protected
+    CurbrFrameSet: TbrFrameSet;  {the TbrFrameSet being displayed}
+
+    function GetCurViewerCount: integer; override;
+    function GetCurViewer(I: integer): ThtmlViewer; override;
+    function GetActiveViewer: ThtmlViewer;  override;
+
+
+    procedure BumpHistory(OldFrameSet: TbrFrameSet; OldPos: LongInt);
+    procedure BumpHistory1(const FileName, Title: string;
+                 OldPos: LongInt; ft: ThtmlFileType);
+    procedure BumpHistory2(OldPos: LongInt);
+    function HotSpotClickHandled(const FullUrl: string): boolean;
+
+    procedure AddFrame(FrameSet: TObject; Attr: TAttributeList; const FName: string); override;
+    function CreateSubFrameSet(FrameSet: TObject): TObject; override;
+    procedure DoAttributes(FrameSet: TObject; Attr: TAttributeList); override;
+    procedure EndFrameSet(FrameSet: TObject); override;
+    procedure AddVisitedLink(const S: string);
+    procedure CheckVisitedLinks;
+    procedure LoadURLInternal(const URL, Query: string; IsGet, Reload: boolean);
+    procedure DoFormSubmitEvent(Sender: TObject; const Action, Target, EncType, Method: string;
+                    Results: TStringList);
+
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure Reload;
+    procedure Clear;
+    procedure HotSpotClick(Sender: TObject; const AnURL: string;
+              var Handled: boolean);
+    procedure ClearHistory; override;
+    function ViewerFromTarget(const Target: string): ThtmlViewer;
+    procedure GoBack;
+    procedure GoFwd;
+    procedure RePaint; override;
+    procedure LoadURL(const URL: string);
+    function GetViewerUrlBase(Viewer: ThtmlViewer): string;
+
+    property Base: string read GetBase write SetBase;
+    property BaseTarget: string read GetBaseTarget;
+    property DocumentTitle: string read GetTitle;
+    property CurrentFile: string read GetCurrentFile;
+    property HistoryIndex: integer read FHistoryIndex write SetHistoryIndex;
+
+  published
+    property FwdButtonEnabled: boolean read GetFwdButtonEnabled;
+    property BackButtonEnabled: boolean read GetBackButtonEnabled;
+    property OnGetPostRequest: TGetPostRequestEvent read FOnGetPostRequest write FOnGetPostRequest;
+    property OnImageRequest: TGetImageEvent read FOnImageRequest
+                      write SetOnImageRequest;
+    property fvOptions: TFrameViewerOptions read FOptions write SetOptions;
+    property OnViewerClear: TNotifyEvent read FOnViewerClear write FOnViewerClear;
+
+  end;
+
+  TFMBEditor = class(TComponentEditor)
+    function GetVerbCount: Integer; Override;
+    function GetVerb(index: Integer): String; Override;
+    procedure ExecuteVerb(index: Integer); Override;
+    end;
+
+procedure Register;
+
+implementation
