@@ -6,6 +6,10 @@ uses
   SysUtils, Classes, PCharLst, Graphics;
 
 type
+  RServerError = record
+    Msg: String
+  end;
+
   RColorList = record
     Colors: TStringList;
     Names: TStringList;
@@ -77,6 +81,7 @@ function GetMessageType(Value: PChar): String;
 function GetMessageAsList(Value: PChar; FullMessage: Boolean): TPCharList;
 function GetListField(Value: PChar): TStringList;
 function Quotation(Input: String): String;
+function ParseServerError(Content: PChar): RServerError;
 function ParseColorListMessage(Content: PChar): RColorList;
 function ParseRoomListItemMessage(Content: PChar): RRoomListItem;
 function ParseServerUser(Content: PChar; FullMessage: Boolean): RUser;
@@ -299,6 +304,26 @@ begin
   else
     Result := Input;
 end;
+
+function ParseServerError(Content: PChar): RServerError;
+var
+  Fields: TPCharList;
+  ServerErrorMsg: RServerError;
+begin
+  try
+    Fields := GetMessageAsList(Content, True);
+
+    with ServerErrorMsg do
+    begin
+      Msg := StrPas(Fields.Get(0));
+    end;
+  finally
+    Fields.Free; { Free the TPCharList to avoid memory leaks }
+  end;
+
+  Result := ServerErrorMsg;
+end;
+
 
 function ParseColorListMessage(Content: PChar): RColorList;
 var

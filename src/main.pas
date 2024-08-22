@@ -4,8 +4,8 @@ interface
 
 uses
   SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
-  Forms, Dialogs, StdCtrls, WSocket, IrcTags, FatThing, ExtCtrls, ProtocolMessages,
-  Readhtml, Htmlview, StrmBldr;
+  Forms, Dialogs, StdCtrls, WSocket, ExtCtrls, ProtocolMessages,
+  Readhtml, Htmlview, StrmBldr, GIFImage, Toolbar, Buttons, Menus;
 
 type
   PUser = ^RUser;
@@ -25,7 +25,16 @@ type
     CkPrivately: TCheckBox;
     CmbSpeechMode: TComboBox;
     MsgHtmlViewer: THTMLViewer;
-    BtnSaveChat: TButton;
+    MenuMain: TMainMenu;
+    MenuGroupChat: TMenuItem;
+    MenuGroupHelp: TMenuItem;
+    MenuItemConnect: TMenuItem;
+    MenuItemDisconnect: TMenuItem;
+    N1: TMenuItem;
+    MenuItemExit: TMenuItem;
+    MenuGroupMessages: TMenuItem;
+    MenuItemAutoScroll: TMenuItem;
+    MenuItemAbout: TMenuItem;
     procedure BtnSendClick(Sender: TObject);
     procedure CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
     procedure CommSocketSessionConnected(Sender: TObject; ErrCode: Word);
@@ -34,6 +43,7 @@ type
     procedure FormActivate(Sender: TObject);
     procedure UsersListDrawItem(Control: TWinControl; Index: Integer;
       Rect: TRect; State: TOwnerDrawState);
+    procedure ProcessServerError(Msg: PChar);
     procedure ProcessColorList(Msg: PChar);
     procedure ProcessRoomListStart;
     procedure ProcessRoomListEnd;
@@ -52,19 +62,26 @@ type
     procedure InitializeStream;
     procedure FinalizeStream;
     procedure AppendMessageToViewer(Msg: RServerChatMessage);
-    procedure BtnSaveChatClick(Sender: TObject);
     procedure UsersListDblClick(Sender: TObject);
     procedure CommSocketSocksError(Sender: TObject; Error: Integer;
       Msg: String);
     procedure CommSocketError(Sender: TObject);
     procedure SetStatus(Status: String);
     procedure SetChatEnabled(Val: Boolean);
+    procedure OpenLoginModal;
   private
-    RoomNames    : TStringList;
-    RoomIds      : TStringList;
-    FRcvBuf      : array [0..8191] of char;
-    FRcvCnt      : Integer;
-    ChatUsers    : TList;
+    RoomNames: TStringList;
+    RoomIds: TStringList;
+    FRcvBuf: array [0..8191] of char;
+    FRcvCnt: Integer;
+    ChatUsers: TList;
+    LoginModalShown: Boolean;
+    CurrentUser: PUser;
+    CurrentRoom: String;
+    ChatMessageStream: TMemoryStream;
+    SelectedUserTo: PUser;
+    IsLogginIn: Boolean;
+    IsFirstMessage: Boolean;
   public
     { Public declarations }
   end;
@@ -72,11 +89,6 @@ type
 
 var
   MainForm: TMainForm;
-  Shown: Boolean;
-  CurrentUser: RUser;
-  CurrentRoom: String;
-  ChatMessageStream: TMemoryStream;
-  SelectedUserTo: PUser;
 
  
 implementation
@@ -121,6 +133,8 @@ begin
 end;
 
 procedure TMainForm.SetChatEnabled(Val: Boolean);
+var
+  I: Integer;
 begin
   UsersList.Enabled := Val;
   EditMessage.Enabled := Val;
@@ -129,6 +143,40 @@ begin
   CkPrivately.Enabled := Val;
   CmbSpeechMode.Enabled := Val;
   LblUserTo.Enabled := Val;
+  MenuItemAutoScroll.Enabled := Val;
+
+  if Val = False then
+  begin
+    IsFirstMessage := True;
+    LoginModalShown := False;
+    CurrentUser := nil;
+    CurrentRoom := '';
+    SelectedUserTo := nil;
+    IsLogginIn := False;
+
+    MsgHtmlViewer.Clear;
+
+    if ChatUsers <> nil then
+      for I := 0 to ChatUsers.Count - 1 do
+      begin
+        Dispose(PUser(ChatUsers[I]));
+        UsersList.Items.Delete(I);
+      end;
+
+    LblUserTo.Caption := 'Everyone';
+    LblUserTo.Font.Color := HtmlToDelphiColor('#000000');
+    CkPrivately.Checked := False;
+    CmbSpeechMode.ItemIndex := 0;
+
+    ChatUsers.Free;
+    ChatUsers := nil;
+    RoomNames.Free;
+    RoomNames := nil;
+    RoomIds.Free;
+    RoomIds := nil;
+
+    FinalizeStream;
+  end;
 end;
 
 procedure TMainForm.AppendMessageToViewer(Msg: RServerChatMessage);
@@ -151,16 +199,21 @@ var
       end;
 
     { Check if the ID matches the current user }
-    if CurrentUser.UserID = UserID then
-      Result := @CurrentUser;
+    if CurrentUser^.UserID = UserID then
+      Result := CurrentUser;
   end;
 
 begin
   StringBuilder := TStringStreamBuilder.Create;
   try
-    StringBuilder.Append('<br />');
+    if not IsFirstMessage then
+      StringBuilder.Append('<br /><br />')
+    else
+      IsFirstMessage := False;
+
+
     { If the message is directed to the current user, start the table wrapper }
-    if (Msg.ToUser <> nil) and (Msg.ToUser^.UserID = CurrentUser.UserID) then
+    if (Msg.ToUser <> nil) and (Msg.ToUser^.UserID = CurrentUser^.UserID) then
     begin
       StringBuilder.Append('<table bgcolor="#E0E0E0" border="1" ');
       StringBuilder.Append('bordercolor="#DDDDDD" width="100%" ');
@@ -168,82 +221,52 @@ begin
     end;
 
     { Start building the HTML content }
-    StringBuilder.Append('<font color="#DDDDDD">');
+    StringBuilder.Append('<font color="#777777" size="-2">');
     StringBuilder.Append('[' + Msg.Time + '] ');
     StringBuilder.Append('</font>');
 
+
     if not Msg.IsSystemMessage then
     begin
+      StringBuilder.Append('<font size="-1">');
+      
+      StringBuilder.Append('<strong>');
+    
+      if Msg.FromUser = nil then
+        StringBuilder.Append('Everyone')
+      else
+        StringBuilder.Append('<font color="' + Msg.FromUser^.Color + '">' +
+          Msg.FromUser^.Nickname + '</font>');
+    
+      StringBuilder.Append('</strong> ');
+
+      if Msg.Privately then
+        StringBuilder.Append('privately ');
+
       { Handle different speech modes }
       if Msg.SpeechMode = 'says-to' then
-      begin
-        StringBuilder.Append('<strong>');
-        if Msg.FromUser = nil then
-          StringBuilder.Append('Everyone')
-        else
-          StringBuilder.Append('<font color="' + Msg.FromUser^.Color + '">' + 
-            Msg.FromUser^.Nickname + '</font>');
-        StringBuilder.Append('</strong> ');
-
-        if Msg.Privately then
-          StringBuilder.Append('privately ');
-
-        StringBuilder.Append('</i>says to</i> ');
-
-        StringBuilder.Append('<strong>');
-        if Msg.ToUser = nil then
-          StringBuilder.Append('Everyone')
-        else
-          StringBuilder.Append('<font color="' + Msg.ToUser^.Color + '">' + 
-            Msg.ToUser^.Nickname + '</font>');
-        StringBuilder.Append('</strong> : ');
-
-        StringBuilder.Append(Msg.Message);
-      end
+        StringBuilder.Append('says to ')
       else if Msg.SpeechMode = 'screams-at' then
-      begin
-        StringBuilder.Append('<strong>');
-        if Msg.FromUser = nil then
-          StringBuilder.Append('Everyone')
-        else
-          StringBuilder.Append('<font color="' + Msg.FromUser^.Color + '">' + 
-            Msg.FromUser^.Nickname + '</font>');
-        StringBuilder.Append('</strong> ');
-
-        StringBuilder.Append('</i>screams at</i> ');
-
-        StringBuilder.Append('<strong>');
-        if Msg.ToUser = nil then
-          StringBuilder.Append('Everyone')
-        else
-          StringBuilder.Append('<font color="' + Msg.ToUser^.Color + '">' + 
-            Msg.ToUser^.Nickname + '</font>');
-        StringBuilder.Append('</strong> : ');
-
-        StringBuilder.Append('<strong>' + Msg.Message + '</strong>');
-      end
+        StringBuilder.Append('screams at ')
       else if Msg.SpeechMode = 'whispers-to' then
-      begin
-        StringBuilder.Append('<strong>');
-        if Msg.FromUser = nil then
-          StringBuilder.Append('Everyone')
-        else
-          StringBuilder.Append('<font color="' + Msg.FromUser^.Color + '">' + 
-            Msg.FromUser^.Nickname + '</font>');
-        StringBuilder.Append('</strong> ');
+        StringBuilder.Append('whispers to<');
 
-        StringBuilder.Append('</i>whispers to</i> ');
+      StringBuilder.Append('<strong>');
+      if Msg.ToUser = nil then
+        StringBuilder.Append('Everyone')
+      else
+        StringBuilder.Append('<font color="' + Msg.ToUser^.Color + '">' + 
+          Msg.ToUser^.Nickname + '</font>');
+      StringBuilder.Append('</strong>:');
+      StringBuilder.Append('</font>');
+      StringBuilder.Append('<br />');
 
-        StringBuilder.Append('<strong>');
-        if Msg.ToUser = nil then
-          StringBuilder.Append('Everyone')
-        else
-          StringBuilder.Append('<font color="' + Msg.ToUser^.Color + '">' + 
-            Msg.ToUser^.Nickname + '</font>');
-        StringBuilder.Append('</strong> : ');
-
-        StringBuilder.Append('</i>' + Msg.Message + '</i>');
-      end;
+      if Msg.SpeechMode = 'says-to' then
+        StringBuilder.Append(Msg.Message)
+      else if Msg.SpeechMode = 'screams-at' then
+        StringBuilder.Append('<font size="4"><strong>' + Msg.Message + '</strong></font>')
+      else if Msg.SpeechMode = 'whispers-to' then
+        StringBuilder.Append('<font size="-1"><i>' + Msg.Message + '</i></font>');
     end
     else
     begin
@@ -253,15 +276,15 @@ begin
         if Msg.SystemMessageSubject <> nil then
         begin
           Delete(SystemMessageReplacement, Position, 10);
-          Insert('<font color="' + Msg.SystemMessageSubject^.Color + '">' + 
-            Msg.SystemMessageSubject^.Nickname + '</font>', SystemMessageReplacement, Position);
+          Insert('<font color="' + Msg.SystemMessageSubject^.Color + '"><strong>' + 
+            Msg.SystemMessageSubject^.Nickname + '</strong></font>', SystemMessageReplacement, Position);
           Position := Pos('{nickname}', SystemMessageReplacement);
         end;
       StringBuilder.Append(SystemMessageReplacement);
     end;
 
     { If the message is directed to the current user, close the table wrapper }
-    if (Msg.ToUser <> nil) and (Msg.ToUser^.UserID = CurrentUser.UserID) then
+    if (Msg.ToUser <> nil) and (Msg.ToUser^.UserID = CurrentUser^.UserID) then
       StringBuilder.Append('</td></tr></table>');
 
     Stream := StringBuilder.GetStream;
@@ -304,7 +327,7 @@ begin
 
   with MessageRec do
   begin
-    UserID := CurrentUser.UserID;
+    UserID := CurrentUser^.UserID;
 
     if (SelectedUserTo <> nil) then
       UserTo := SelectedUserTo^.UserID
@@ -349,15 +372,23 @@ begin
   RoomIds := TStringList.Create;
 end;
 
-procedure TMainForm.ProcessRoomListEnd;
+procedure TMainForm.ProcessServerError(Msg: PChar);
+var
+  ServerErrorMsg: RServerError;
+begin
+  ServerErrorMsg := ParseServerError(Msg);
+
+  MessageDlg(ServerErrorMsg.Msg, mtError, [mbOK], 0);
+
+  if IsLogginIn then
+    OpenLoginModal;
+end;
+
+procedure TMainForm.OpenLoginModal;
 var
   Result: TModalResult;
 begin
-  if Assigned(ConnectionDialog) and (ConnectionDialog.Visible) then
-    Exit;
-
-  ConnectionDialog.RoomSelector.Items := RoomNames;
-  ConnectionDialog.RoomSelector.ItemIndex := 0;
+  IsLogginIn := True;
   Result := ConnectionDialog.ShowModal;
   if Result = mrOk then
   begin
@@ -370,7 +401,20 @@ begin
   end
   else
     Application.Terminate;
-  Shown := True;
+  LoginModalShown := True;
+end;
+
+procedure TMainForm.ProcessRoomListEnd;
+var
+  Result: TModalResult;
+begin
+  if Assigned(ConnectionDialog) and (ConnectionDialog.Visible) then
+    Exit;
+
+  ConnectionDialog.RoomSelector.Items := RoomNames;
+  ConnectionDialog.RoomSelector.ItemIndex := 0;
+
+  OpenLoginModal;
 end;
 
 procedure TMainForm.ProcessRoomListItem(Msg: PChar);
@@ -378,6 +422,7 @@ var
   ListItem: RRoomListItem;
 begin
   ListItem := ParseRoomListItemMessage(Msg);
+
   RoomNames.Add(ListItem.Name);
   RoomIds.Add(ListItem.RoomId);
 end;
@@ -385,23 +430,36 @@ end;
 procedure TMainForm.ProcessUserRegistrationSuccess(Msg: PChar);
 var
   UserItem: PUser;
+  ParsedUser: RUser;
 begin
   New(UserItem);
 
-  CurrentUser := ParseServerUserRegistrationSuccessMessage(Msg);
+  ParsedUser := ParseServerUserRegistrationSuccessMessage(Msg);
+ 
+  New(CurrentUser); 
+  CurrentUser^.UserID := ParsedUser.UserID;
+  CurrentUser^.Nickname := ParsedUser.Nickname;
+  CurrentUser^.Color := ParsedUser.Color;
+  CurrentUser^.RoomID := ParsedUser.RoomID;
 
   with (UserItem^) do
   begin
     UserID := '';
     Nickname := 'Everyone';
     Color := '#000000';
-    RoomID := CurrentUser.RoomID;
+    RoomID := CurrentUser^.RoomID;
   end;
 
   UsersList.Items.Insert(0, UserItem^.Nickname);
+
+  if not Assigned(ChatUsers) then
+    ChatUsers := TList.Create;
+
   ChatUsers.Insert(0, UserItem);
 
   SetChatEnabled(True);
+
+  IsLogginIn := False;
 
   UsersList.ItemIndex := 0;
 end;
@@ -412,6 +470,10 @@ var
 begin
   New(UserItem);
   UserItem^ := ParseUserAddMessage(Msg);
+
+  if not Assigned(ChatUsers) then
+    ChatUsers := TList.Create;
+
   ChatUsers.Add(UserItem);
   UsersList.Items.Add(UserItem^.Nickname);
 end;
@@ -423,6 +485,13 @@ var
   P: PUser;
 begin
   UserItem := ParseUserRemoveMessage(Msg);
+
+  if SelectedUserTo^.UserID = UserItem.UserID then
+  begin
+    SelectedUserTo := PUser(ChatUsers[0]);
+    LblUserTo.Caption := SelectedUserTo^.Nickname;
+    LblUserTo.Font.Color := HtmlToDelphiColor(SelectedUserTo^.Color);
+  end;
 
   for I := 0 to ChatUsers.Count - 1 do
   begin
@@ -453,7 +522,9 @@ var
 begin
   MessageType := GetMessageType(Msg);
 
-  if MessageType = SERVER_COLOR_LIST then
+  if MessageType = SERVER_ERROR then
+    ProcessServerError(Msg)
+  else if MessageType = SERVER_COLOR_LIST then
     ProcessColorList(Msg)
   else if MessageType = SERVER_ROOM_LIST_START then
     ProcessRoomListStart
@@ -559,7 +630,7 @@ end;
 procedure TMainForm.CommSocketSessionConnected(Sender: TObject;
   ErrCode: Word);
 begin
-  if (Shown = False) and (CommSocket.State = wsConnected) then
+  if (LoginModalShown = False) and (CommSocket.State = wsConnected) then
     Self.Login;
 
 
@@ -582,9 +653,6 @@ begin
 end;
 
 procedure TMainForm.FormActivate(Sender: TObject);
-var
-  L: TFatLine;
-  P: TFatPart;
 begin
   CmbSpeechMode.ItemIndex := 0;
   SetChatEnabled(False);
@@ -610,9 +678,13 @@ var
   TextColor: TColor;
   UserItem: PUser;
 begin
+  if ChatUsers = nil then
+    Exit;
+
+  UserItem := PUser(ChatUsers[Index]);
   with (Control as TListBox).Canvas do
   begin
-    UserItem := PUser(ChatUsers[Index]);
+
 
     if Assigned(UserItem) then
       TextColor := HtmlToDelphiColor(UserItem^.Color)
@@ -645,20 +717,36 @@ begin
         ShowMessage('Error closing socket: ' + E.Message);
     end;
 
-  for I := 0 to ChatUsers.Count - 1 do
-    Dispose(PUser(ChatUsers[I]));
+  if ChatUsers <> nil then
+    for I := 0 to ChatUsers.Count - 1 do
+    begin
+      if (ChatUsers[I] <> nil) then
+        Dispose(PUser(ChatUsers[I]));
+    end;
+
   ChatUsers.Free;
+  ChatUsers := nil;
   RoomNames.Free;
+  RoomNames := nil;
   RoomIds.Free;
+  RoomIds := nil;
 
   FinalizeStream;
 end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
-  RoomNames := TStringList.Create;
-  RoomIds := TStringList.Create;
-  ChatUsers := TList.Create;
+  if not Assigned(RoomNames) then
+    RoomNames := TStringList.Create;
+
+  if not Assigned(RoomIds) then
+    RoomIds := TStringList.Create;
+
+  if not Assigned(ChatUsers) then
+    ChatUsers := TList.Create;
+    
+  IsLogginIn := False;
+  IsFirstMessage := True;
 end;
 
 procedure TMainForm.FormResize(Sender: TObject);
@@ -675,41 +763,6 @@ begin
   begin
     SendMessage(self);
     Key := #0;
-  end;
-end;
-
-procedure TMainForm.BtnSaveChatClick(Sender: TObject);
-const
-  HtmlEnd: string = '</body></html>';
-var
-  HtmlEndBuffer: PChar;
-  FileStream: TFileStream;
-  CurrentPosition: Integer;
-begin
-  if Assigned(ChatMessageStream) then
-  begin
-    { Temporarily add the closing HTML tags for saving }
-    GetMem(HtmlEndBuffer, Length(HtmlEnd) + 1);
-    try
-      StrPCopy(HtmlEndBuffer, HtmlEnd);
-      CurrentPosition := ChatMessageStream.Position;
-      ChatMessageStream.Position := ChatMessageStream.Size;
-      ChatMessageStream.Write(HtmlEndBuffer^, StrLen(HtmlEndBuffer));
-
-      { Save the stream content to a file }
-      FileStream := TFileStream.Create('c:\src\chat.html', fmCreate);
-      try
-        ChatMessageStream.Position := 0; { Reset the stream position to the beginning }
-        FileStream.CopyFrom(ChatMessageStream, ChatMessageStream.Size);
-      finally
-        FileStream.Free;
-      end;
-
-      { Remove the temporarily added closing HTML tags }
-      ChatMessageStream.SetSize(CurrentPosition);
-    finally
-      FreeMem(HtmlEndBuffer, Length(HtmlEnd) + 1);
-    end;
   end;
 end;
 

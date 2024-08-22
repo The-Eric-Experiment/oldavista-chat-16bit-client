@@ -1,0 +1,80 @@
+Follow the steps outlined below for your particular development environment:
+
+1) Extract the required files to a folder of your choice
+--------------------------------------------------------
+The WinXX.exe archive matching your system ("16" for Windows 3.1 or "32" for
+Windows 95/98/NT/2000) contains the files needed for the installation, as well
+as Demo applications.
+
+The Win16 archive runs under DOS (or in a DOS Box under Windows) and extracts
+to the current folder (so you'll need to move the extracted files to where you
+want them).
+
+The Win32 archive provides the opportunity to specify a folder to extract to.
+
+Extract them to wherever you store your components, let's say it's:
+  C:\Source\Components
+
+
+2) Locate the required files
+----------------------------
+
+You can find the required files in the folder matching your development
+environment:
+
+  C++Builder 1: Bin\Builder1
+  C++Builder 3: Bin\Builder3
+  C++Builder 4: Bin\Builder4
+  Delphi 1    : Bin\Delphi1
+  Delphi 2    : Bin\Delphi2
+  Delphi 3    : Bin\Delphi3
+  Delphi 4    : Bin\Delphi4
+  Delphi 5    : Bin\Delphi5
+
+
+3) Add the folder to your library search path
+---------------------------------------------
+This is only really necessary for Delphi 1 and Delphi 3. The other compilers do
+it automatically (although it can't hurt to make sure).
+
+
+4) Install the components
+-------------------------
+
+  Delphi 1, Delphi 2, C++Builder 1:
+  ---------------------------------
+  Register the components by adding GIFReg to the component library
+  using the following steps:
+
+  a. Choose "Component" | "Install" from the main menu.
+  b. Click on the Add button and then the Browse button.
+  c. Navigate to the directory where you placed the TGIFImage files.
+  d. Locate the GIFReg.dcu (or GIFReg.pas) file and click the Open button.
+  e. Click the OK Button to rebuild the component library.
+
+  The component library will now be rebuilt, and should include TGIFImage and
+  TTimerEx.
+
+  C++Builder 1 might complain that it can't find some files. In this case, a
+  workaround is to copy the respective files to the Bin folder of your
+  C++Builder 1 installation.
+
+
+  C++Builder 3, C++Builder 4:
+  ---------------------------
+  Add the package matching your environment to the IDE by using the following
+  steps:
+
+  a. Choose "Component" | "Install Packages..." from the main menu.
+  b. Click on the Add button.
+  c. Navigate to the directory where you placed the TGIFImage files.
+  d. Locate the GIFComps.bpl file and click the Open button.
+
+  TGIFImage and TTimerEx should now be included on your component palette.
+
+
+  Delphi 3, Delphi 4, Delphi 5:
+  -----------------------------
+  Open the package "GIFComps.dpk" in the folder matching your environment. Compile
+  and Install the package. TGIFImage and TTimerEx should now be included on your
+  component palette.
