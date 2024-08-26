@@ -1,17 +1,18 @@
-unit Main;
 
-interface
+Unit Main;
 
-uses
-  SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
-  Forms, Dialogs, StdCtrls, WSocket, ExtCtrls, ProtocolMessages,
-  Readhtml, Htmlview, StrmBldr, GIFImage, Toolbar, Buttons, Menus;
+Interface
 
-type
+Uses 
+SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
+Forms, Dialogs, StdCtrls, WSocket, ExtCtrls, ProtocolMessages, MMSystem,
+Readhtml, Htmlview, StrmBldr, GIFImage, Toolbar, Buttons, Menus, About;
+
+Type 
   PUser = ^RUser;
 
-type
-  TMainForm = class(TForm)
+Type 
+  TMainForm = Class(TForm)
     CommSocket: TWSocket;
     MessagePanel: TPanel;
     EditMessage: TEdit;
@@ -35,107 +36,121 @@ type
     MenuGroupMessages: TMenuItem;
     MenuItemAutoScroll: TMenuItem;
     MenuItemAbout: TMenuItem;
-    procedure BtnSendClick(Sender: TObject);
-    procedure CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
-    procedure CommSocketSessionConnected(Sender: TObject; ErrCode: Word);
-    procedure CommSocketSessionClosed(Sender: TObject; ErrCode: Word);
-    procedure CommSocketSocksConnected(Sender: TObject; ErrCode: Word);
-    procedure FormActivate(Sender: TObject);
-    procedure UsersListDrawItem(Control: TWinControl; Index: Integer;
-      Rect: TRect; State: TOwnerDrawState);
-    procedure ProcessServerError(Msg: PChar);
-    procedure ProcessColorList(Msg: PChar);
-    procedure ProcessRoomListStart;
-    procedure ProcessRoomListEnd;
-    procedure ProcessRoomListItem(Msg: PChar);
-    procedure ProcessUserRegistrationSuccess(Msg: PChar);
-    procedure ProcessUserListAdd(Msg: PChar);
-    procedure ProcessUserListRemove(Msg: PChar);
-    procedure ProcessMessage(Msg: PChar);
-    procedure ProcessMessageSent(Msg: PChar);
-    procedure Login;
-    procedure FormDestroy(Sender: TObject);
-    procedure FormCreate(Sender: TObject);
-    procedure FormResize(Sender: TObject);
-    procedure EditMessageKeyPress(Sender: TObject; var Key: Char);
-    procedure SendMessage(Sender: TObject);
-    procedure InitializeStream;
-    procedure FinalizeStream;
-    procedure AppendMessageToViewer(Msg: RServerChatMessage);
-    procedure UsersListDblClick(Sender: TObject);
-    procedure CommSocketSocksError(Sender: TObject; Error: Integer;
-      Msg: String);
-    procedure CommSocketError(Sender: TObject);
-    procedure SetStatus(Status: String);
-    procedure SetChatEnabled(Val: Boolean);
-    procedure OpenLoginModal;
-  private
-    RoomNames: TStringList;
-    RoomIds: TStringList;
-    FRcvBuf: array [0..8191] of char;
-    FRcvCnt: Integer;
-    ChatUsers: TList;
-    LoginModalShown: Boolean;
-    CurrentUser: PUser;
-    CurrentRoom: String;
-    ChatMessageStream: TMemoryStream;
-    SelectedUserTo: PUser;
-    IsLogginIn: Boolean;
-    IsFirstMessage: Boolean;
-  public
+    Procedure BtnSendClick(Sender: TObject);
+    Procedure CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
+    Procedure CommSocketSessionConnected(Sender: TObject; ErrCode: Word);
+    Procedure CommSocketSessionClosed(Sender: TObject; ErrCode: Word);
+    Procedure CommSocketSocksConnected(Sender: TObject; ErrCode: Word);
+    Procedure FormActivate(Sender: TObject);
+    Procedure UsersListDrawItem(Control: TWinControl; Index: Integer;
+                                Rect: TRect; State: TOwnerDrawState);
+    Procedure ProcessServerError(Msg: PChar);
+    Procedure ProcessColorList(Msg: PChar);
+    Procedure ProcessRoomList(Msg: PChar);
+    Procedure ProcessUserRegistrationSuccess(Msg: PChar);
+    Procedure ProcessUserListAdd(Msg: PChar);
+    Procedure ProcessUserListRemove(Msg: PChar);
+    Procedure ProcessMessage(Msg: PChar);
+    Procedure ProcessMessageSent(Msg: PChar);
+    Procedure ProcessUserKicked(Msg: PChar);
+    Procedure Login;
+    Procedure FormDestroy(Sender: TObject);
+    Procedure FormCreate(Sender: TObject);
+    Procedure FormResize(Sender: TObject);
+    Procedure EditMessageKeyPress(Sender: TObject; Var Key: Char);
+    Procedure SendMessage(Sender: TObject);
+    Procedure InitializeStream;
+    Procedure FinalizeStream;
+    Procedure AppendMessageToViewer(Msg: RServerChatMessage);
+    Procedure UsersListDblClick(Sender: TObject);
+    Procedure SetStatus(Status: String);
+    Procedure SetChatEnabled(Val: Boolean);
+    Procedure OpenLoginModal;
+    Procedure PlayNotificationSound(Msg: RServerChatMessage);
+    Procedure MenuItemAboutClick(Sender: TObject);
+    Procedure ConnectToServer;
+    Procedure DisconnectFromServer;
+    Procedure SetConnectionStatus(Connected: Boolean);
+    Function GetStateMessage(WasConnectedMessge: String;
+                             WasNotConnectedMessage: String): String;
+    Procedure CommSocketSocksError(Sender: TObject; Error: Integer;
+                                   Msg: String);
+    Procedure CommSocketError(Sender: TObject);
+    Procedure MenuItemConnectClick(Sender: TObject);
+    Procedure MenuItemDisconnectClick(Sender: TObject);
+    Private 
+      RoomIds: TStringList;
+      FRcvBuf: array [0..8191] Of char;
+      FRcvCnt: Integer;
+      ChatUsers: TList;
+      LoginModalShown: Boolean;
+      CurrentUser: PUser;
+      CurrentRoom: String;
+      ChatMessageStream: TMemoryStream;
+      SelectedUserTo: PUser;
+      IsLogginIn: Boolean;
+      IsFirstMessage: Boolean;
+      ReadyForNotifications: Boolean;
+      IsKicked: Boolean;
+      IsManualDisconnect: Boolean;
+    Public 
     { Public declarations }
-  end;
+  End;
 
 
-var
+Var 
   MainForm: TMainForm;
 
- 
-implementation
 
-uses ConnDiag;
+Implementation
+
+Uses ConnDiag;
 
 {$R *.DFM}
 
-procedure TMainForm.InitializeStream;
-const
+Procedure TMainForm.InitializeStream;
+
+Const 
   HtmlStart: string = '<html><body marginheight="0" marginwidth="0">';
-var
+
+Var 
   HtmlStartBuffer: PChar;
-begin
+Begin
   { Initialize the memory stream only once }
-  if not Assigned(ChatMessageStream) then
-  begin
-    ChatMessageStream := TMemoryStream.Create;
-    GetMem(HtmlStartBuffer, Length(HtmlStart) + 1);
-    try
-      StrPCopy(HtmlStartBuffer, HtmlStart);
-      ChatMessageStream.Write(HtmlStartBuffer^, Length(HtmlStart));  { Use Length instead of StrLen for accurate byte count }
-    finally
-      FreeMem(HtmlStartBuffer, Length(HtmlStart) + 1);
-    end;
-  end;
-end;
+  If Not Assigned(ChatMessageStream) Then
+    Begin
+      ChatMessageStream := TMemoryStream.Create;
+      GetMem(HtmlStartBuffer, Length(HtmlStart) + 1);
+      Try
+        StrPCopy(HtmlStartBuffer, HtmlStart);
+        ChatMessageStream.Write(HtmlStartBuffer^, Length(HtmlStart));
+        { Use Length instead of StrLen for accurate byte count }
+      Finally
+        FreeMem(HtmlStartBuffer, Length(HtmlStart) + 1);
+    End;
+End;
+End;
 
-procedure TMainForm.FinalizeStream;
-begin
+Procedure TMainForm.FinalizeStream;
+Begin
   { Free the memory stream when done }
-  if Assigned(ChatMessageStream) then
-  begin
-    ChatMessageStream.Free;
-    ChatMessageStream := nil;
-  end;
-end;
+  If Assigned(ChatMessageStream) Then
+    Begin
+      ChatMessageStream.Free;
+      ChatMessageStream := Nil;
+    End;
+End;
 
-procedure TMainForm.SetStatus(Status: String);
-begin
+Procedure TMainForm.SetStatus(Status: String);
+Begin
   StatusPanel.Caption := Status;
-end;
+End;
 
-procedure TMainForm.SetChatEnabled(Val: Boolean);
-var
+Procedure TMainForm.SetChatEnabled(Val: Boolean);
+
+Var 
   I: Integer;
-begin
+Begin
   UsersList.Enabled := Val;
   EditMessage.Enabled := Val;
   BtnSend.Enabled := Val;
@@ -145,80 +160,99 @@ begin
   LblUserTo.Enabled := Val;
   MenuItemAutoScroll.Enabled := Val;
 
-  if Val = False then
-  begin
-    IsFirstMessage := True;
-    LoginModalShown := False;
-    CurrentUser := nil;
-    CurrentRoom := '';
-    SelectedUserTo := nil;
-    IsLogginIn := False;
+  If Val = False Then
+    Begin
+      IsFirstMessage := True;
+      LoginModalShown := False;
+      CurrentUser := Nil;
+      CurrentRoom := '';
+      SelectedUserTo := Nil;
+      IsLogginIn := False;
+      ReadyForNotifications := False;
+      IsManualDisconnect := False;
 
-    MsgHtmlViewer.Clear;
+      MsgHtmlViewer.Clear;
 
-    if ChatUsers <> nil then
-      for I := 0 to ChatUsers.Count - 1 do
-      begin
-        Dispose(PUser(ChatUsers[I]));
-        UsersList.Items.Delete(I);
-      end;
+      If ChatUsers <> Nil Then
+        For I := 0 To ChatUsers.Count - 1 Do
+          Begin
+            Dispose(PUser(ChatUsers[I]));
+            UsersList.Items.Delete(I);
+          End;
 
-    LblUserTo.Caption := 'Everyone';
-    LblUserTo.Font.Color := HtmlToDelphiColor('#000000');
-    CkPrivately.Checked := False;
-    CmbSpeechMode.ItemIndex := 0;
+      LblUserTo.Caption := 'Everyone';
+      LblUserTo.Font.Color := HtmlToDelphiColor('#000000');
+      CkPrivately.Checked := False;
+      CmbSpeechMode.ItemIndex := 0;
 
-    ChatUsers.Free;
-    ChatUsers := nil;
-    RoomNames.Free;
-    RoomNames := nil;
-    RoomIds.Free;
-    RoomIds := nil;
+      ChatUsers.Free;
+      ChatUsers := Nil;
+      RoomIds.Free;
+      RoomIds := Nil;
 
-    FinalizeStream;
-  end;
-end;
+      FinalizeStream;
+    End;
+End;
 
-procedure TMainForm.AppendMessageToViewer(Msg: RServerChatMessage);
-var
+Procedure TMainForm.PlayNotificationSound(Msg: RServerChatMessage);
+
+Var 
+  ActiveWindow: HWnd;
+Begin
+  ActiveWindow := GetActiveWindow;
+  If ((Msg.FromUser <> Nil) And
+     (Msg.FromUser^.UserID = CurrentUser^.UserID)) Or
+     (Msg.IsSystemMessage) Or
+     (Msg.IsHistory) Or
+     (ActiveWindow = Handle) Or
+     (Not ReadyForNotifications) Then
+    Exit;
+
+  sndPlaySound('notif.wav', SND_ASYNC Or SND_NODEFAULT);
+End;
+
+Procedure TMainForm.AppendMessageToViewer(Msg: RServerChatMessage);
+
+Var 
   StringBuilder: TStringStreamBuilder;
   Stream: TMemoryStream;
   UserColor, SystemMessageReplacement: string;
   Position: Integer;
 
-  function GetUserByID(UserID: string): PUser;
-  var
-    I: Integer;
-  begin
-    Result := nil;
-    for I := 0 to ChatUsers.Count - 1 do
-      if PUser(ChatUsers[I])^.UserID = UserID then
-      begin
+Function GetUserByID(UserID: String): PUser;
+
+Var 
+  I: Integer;
+Begin
+  Result := Nil;
+  For I := 0 To ChatUsers.Count - 1 Do
+    If PUser(ChatUsers[I])^.UserID = UserID Then
+      Begin
         Result := PUser(ChatUsers[I]);
         Exit;
-      end;
+      End;
 
     { Check if the ID matches the current user }
-    if CurrentUser^.UserID = UserID then
-      Result := CurrentUser;
-  end;
+  If CurrentUser^.UserID = UserID Then
+    Result := CurrentUser;
+End;
 
-begin
+Begin
   StringBuilder := TStringStreamBuilder.Create;
-  try
-    if not IsFirstMessage then
+  Try
+    If Not IsFirstMessage Then
       StringBuilder.Append('<br /><br />')
-    else
+    Else
       IsFirstMessage := False;
 
 
     { If the message is directed to the current user, start the table wrapper }
-    if (Msg.ToUser <> nil) and (Msg.ToUser^.UserID = CurrentUser^.UserID) then
-    begin
-      StringBuilder.Append('<table bgcolor="#E0E0E0" border="1" ');
-      StringBuilder.Append('bordercolor="#DDDDDD" width="100%" ');
-      StringBuilder.Append('cellspacing="0" cellpadding="2"><tr><td>');
-    end;
+    If (Msg.ToUser <> Nil) And (Msg.ToUser^.UserID = CurrentUser^.UserID) Then
+      Begin
+        StringBuilder.Append('<table bgcolor="#E0E0E0" border="1" ');
+        StringBuilder.Append('bordercolor="#DDDDDD" width="100%" ');
+        StringBuilder.Append('cellspacing="0" cellpadding="2"><tr><td>');
+      End;
 
     { Start building the HTML content }
     StringBuilder.Append('<font color="#777777" size="-2">');
@@ -226,71 +260,75 @@ begin
     StringBuilder.Append('</font>');
 
 
-    if not Msg.IsSystemMessage then
-    begin
-      StringBuilder.Append('<font size="-1">');
-      
-      StringBuilder.Append('<strong>');
-    
-      if Msg.FromUser = nil then
-        StringBuilder.Append('Everyone')
-      else
-        StringBuilder.Append('<font color="' + Msg.FromUser^.Color + '">' +
-          Msg.FromUser^.Nickname + '</font>');
-    
-      StringBuilder.Append('</strong> ');
+    If Not Msg.IsSystemMessage Then
+      Begin
+        StringBuilder.Append('<font size="-1">');
 
-      if Msg.Privately then
-        StringBuilder.Append('privately ');
+        StringBuilder.Append('<strong>');
+
+        If Msg.FromUser = Nil Then
+          StringBuilder.Append('Everyone')
+        Else
+          StringBuilder.Append('<font color="' + Msg.FromUser^.Color + '">' +
+                               Msg.FromUser^.Nickname + '</font>');
+
+        StringBuilder.Append('</strong> ');
+
+        If Msg.Privately Then
+          StringBuilder.Append('privately ');
 
       { Handle different speech modes }
-      if Msg.SpeechMode = 'says-to' then
-        StringBuilder.Append('says to ')
-      else if Msg.SpeechMode = 'screams-at' then
-        StringBuilder.Append('screams at ')
-      else if Msg.SpeechMode = 'whispers-to' then
-        StringBuilder.Append('whispers to<');
+        If Msg.SpeechMode = 'says-to' Then
+          StringBuilder.Append('says to ')
+        Else If Msg.SpeechMode = 'screams-at' Then
+               StringBuilder.Append('screams at ')
+        Else If Msg.SpeechMode = 'whispers-to' Then
+               StringBuilder.Append('whispers to<');
 
-      StringBuilder.Append('<strong>');
-      if Msg.ToUser = nil then
-        StringBuilder.Append('Everyone')
-      else
-        StringBuilder.Append('<font color="' + Msg.ToUser^.Color + '">' + 
-          Msg.ToUser^.Nickname + '</font>');
-      StringBuilder.Append('</strong>:');
-      StringBuilder.Append('</font>');
-      StringBuilder.Append('<br />');
+        StringBuilder.Append('<strong>');
+        If Msg.ToUser = Nil Then
+          StringBuilder.Append('Everyone')
+        Else
+          StringBuilder.Append('<font color="' + Msg.ToUser^.Color + '">' +
+                               Msg.ToUser^.Nickname + '</font>');
+        StringBuilder.Append('</strong>:');
+        StringBuilder.Append('</font>');
+        StringBuilder.Append('<br />');
 
-      if Msg.SpeechMode = 'says-to' then
-        StringBuilder.Append(Msg.Message)
-      else if Msg.SpeechMode = 'screams-at' then
-        StringBuilder.Append('<font size="4"><strong>' + Msg.Message + '</strong></font>')
-      else if Msg.SpeechMode = 'whispers-to' then
-        StringBuilder.Append('<font size="-1"><i>' + Msg.Message + '</i></font>');
-    end
-    else
-    begin
-      SystemMessageReplacement := Msg.Message;
-      Position := Pos('{nickname}', SystemMessageReplacement);
-      while Position > 0 do
-        if Msg.SystemMessageSubject <> nil then
-        begin
-          Delete(SystemMessageReplacement, Position, 10);
-          Insert('<font color="' + Msg.SystemMessageSubject^.Color + '"><strong>' + 
-            Msg.SystemMessageSubject^.Nickname + '</strong></font>', SystemMessageReplacement, Position);
-          Position := Pos('{nickname}', SystemMessageReplacement);
-        end;
-      StringBuilder.Append(SystemMessageReplacement);
-    end;
+        If Msg.SpeechMode = 'says-to' Then
+          StringBuilder.Append(Msg.Message)
+        Else If Msg.SpeechMode = 'screams-at' Then
+               StringBuilder.Append('<font size="4"><strong>' + Msg.Message +
+                                    '</strong></font>')
+        Else If Msg.SpeechMode = 'whispers-to' Then
+               StringBuilder.Append('<font size="-1"><i>' + Msg.Message +
+                                    '</i></font>');
+      End
+    Else
+      Begin
+        SystemMessageReplacement := Msg.Message;
+        Position := Pos('{nickname}', SystemMessageReplacement);
+        While Position > 0 Do
+          If Msg.SystemMessageSubject <> Nil Then
+            Begin
+              Delete(SystemMessageReplacement, Position, 10);
+              Insert('<font color="' + Msg.SystemMessageSubject^.Color +
+                     '"><strong>' +
+                     Msg.SystemMessageSubject^.Nickname + '</strong></font>',
+                     SystemMessageReplacement, Position);
+              Position := Pos('{nickname}', SystemMessageReplacement);
+            End;
+        StringBuilder.Append(SystemMessageReplacement);
+      End;
 
     { If the message is directed to the current user, close the table wrapper }
-    if (Msg.ToUser <> nil) and (Msg.ToUser^.UserID = CurrentUser^.UserID) then
+    If (Msg.ToUser <> Nil) And (Msg.ToUser^.UserID = CurrentUser^.UserID) Then
       StringBuilder.Append('</td></tr></table>');
 
     Stream := StringBuilder.GetStream;
 
     { Ensure ChatMessageStream is initialized }
-    if not Assigned(ChatMessageStream) then
+    If Not Assigned(ChatMessageStream) Then
       ChatMessageStream := TMemoryStream.Create;
 
     { Move to the end of ChatMessageStream before appending }
@@ -304,155 +342,160 @@ begin
 
     { Ensure scrollbar is correctly positioned at the end }
     Self.MsgHtmlViewer.VScrollBarPosition := 
-      Self.MsgHtmlViewer.VScrollBarRange;
-  finally
+                                             Self.MsgHtmlViewer.VScrollBarRange;
+
+    PlayNotificationSound(Msg);
+  Finally
     StringBuilder.Free;
     FreeServerChatMessage(Msg);
-  end;
-end;
+End;
+End;
 
 
-procedure TMainForm.SendMessage(Sender: TObject);
-var Msg: String;
-var MessageRec: RMessage;
-var SpchMode: String;
-begin
-  case CmbSpeechMode.ItemIndex of
+Procedure TMainForm.SendMessage(Sender: TObject);
+
+Var Msg: String;
+
+Var MessageRec: RMessage;
+
+Var SpchMode: String;
+Begin
+  Case CmbSpeechMode.ItemIndex Of 
     0: SpchMode := 'says-to';
     1: SpchMode := 'screams-at';
     2: SpchMode := 'whispers-to';
-  else
-    SpchMode := 'says-to';
-  end;
+    Else
+      SpchMode := 'says-to';
+  End;
 
-  with MessageRec do
-  begin
-    UserID := CurrentUser^.UserID;
+  With MessageRec Do
+    Begin
+      UserID := CurrentUser^.UserID;
 
-    if (SelectedUserTo <> nil) then
-      UserTo := SelectedUserTo^.UserID
-    else
-      UserTo := '';
+      If (SelectedUserTo <> Nil) Then
+        UserTo := SelectedUserTo^.UserID
+      Else
+        UserTo := '';
 
-    SpeechMode := SpchMode;
-    Message := EditMessage.Text;
-    Privately := CkPrivately.Checked;
-    RoomID := CurrentRoom;
-  end;
+      SpeechMode := SpchMode;
+      Message := EditMessage.Text;
+      Privately := CkPrivately.Checked;
+      RoomID := CurrentRoom;
+    End;
 
   Msg := CreateSendMessageMessage(MessageRec);
 
   CommSocket.SendStr(Msg);
   EditMessage.Text := '';
-end;
+End;
 
-procedure TMainForm.BtnSendClick(Sender: TObject);
-begin
+Procedure TMainForm.BtnSendClick(Sender: TObject);
+Begin
   SendMessage(self);
-end;
+End;
 
-procedure TMainForm.ProcessColorList(Msg: PChar);
-var
+Procedure TMainForm.ProcessColorList(Msg: PChar);
+
+Var 
   ColorList: RColorList;
-begin
+Begin
   ColorList := ParseColorListMessage(Msg);
   ConnectionDialog.NicknameColors := ColorList.Colors;
   ConnectionDialog.ColorSelector.Items := ColorList.Names;
   ConnectionDialog.ColorSelector.ItemIndex := 0;
-end;
 
-procedure TMainForm.ProcessRoomListStart;
-begin
-  if Assigned(RoomNames) then
-    RoomNames.Free;
-  if Assigned(RoomIds) then
-    RoomIds.Free;
+  OpenLoginModal;
+End;
 
-  RoomNames := TStringList.Create;
-  RoomIds := TStringList.Create;
-end;
+Procedure TMainForm.ProcessServerError(Msg: PChar);
 
-procedure TMainForm.ProcessServerError(Msg: PChar);
-var
+Var 
   ServerErrorMsg: RServerError;
-begin
+Begin
   ServerErrorMsg := ParseServerError(Msg);
 
   MessageDlg(ServerErrorMsg.Msg, mtError, [mbOK], 0);
 
-  if IsLogginIn then
+  If IsLogginIn Then
     OpenLoginModal;
-end;
+End;
 
-procedure TMainForm.OpenLoginModal;
-var
-  Result: TModalResult;
-begin
-  IsLogginIn := True;
-  Result := ConnectionDialog.ShowModal;
-  if Result = mrOk then
-  begin
-    CurrentRoom := RoomIds[ConnectionDialog.RoomSelector.ItemIndex];
-    CommSocket.SendStr(
-      CreateRegisterUserMessage(
-      CurrentRoom,
-      ConnectionDialog.NicknameEdit.Text,
-      ConnectionDialog.NicknameColors[ConnectionDialog.ColorSelector.ItemIndex]));
-  end
-  else
-    Application.Terminate;
-  LoginModalShown := True;
-end;
+Procedure TMainForm.OpenLoginModal;
 
-procedure TMainForm.ProcessRoomListEnd;
-var
+Var 
   Result: TModalResult;
-begin
-  if Assigned(ConnectionDialog) and (ConnectionDialog.Visible) then
+Begin
+  If (Not Assigned(RoomIds)) Or
+     (RoomIds.Count <= 0) Or
+     (Not Assigned(ConnectionDialog.NicknameColors)) Or
+     (ConnectionDialog.NicknameColors.Count <= 0) Then
     Exit;
 
-  ConnectionDialog.RoomSelector.Items := RoomNames;
+  IsLogginIn := True;
+  Result := ConnectionDialog.ShowModal;
+  If Result = mrOk Then
+    Begin
+      CurrentRoom := RoomIds[ConnectionDialog.RoomSelector.ItemIndex];
+      CommSocket.SendStr(
+                         CreateRegisterUserMessage(
+                         CurrentRoom,
+                         ConnectionDialog.NicknameEdit.Text,
+                         ConnectionDialog.NicknameColors[ConnectionDialog.
+                         ColorSelector.ItemIndex]));
+    End
+  Else
+    Application.Terminate;
+  LoginModalShown := True;
+End;
+
+Procedure TMainForm.ProcessRoomList(Msg: PChar);
+
+Var 
+  ListItem: RRoomList;
+Begin
+  If Assigned(RoomIds) Then
+    RoomIds.Free;
+
+  ListItem := ParseRoomListMessage(Msg);
+
+  RoomIds := ListItem.RoomIds;
+
+  If Assigned(ConnectionDialog) And (ConnectionDialog.Visible) Then
+    Exit;
+
+  ConnectionDialog.RoomSelector.Items := ListItem.Names;
   ConnectionDialog.RoomSelector.ItemIndex := 0;
 
   OpenLoginModal;
-end;
+End;
 
-procedure TMainForm.ProcessRoomListItem(Msg: PChar);
-var
-  ListItem: RRoomListItem;
-begin
-  ListItem := ParseRoomListItemMessage(Msg);
+Procedure TMainForm.ProcessUserRegistrationSuccess(Msg: PChar);
 
-  RoomNames.Add(ListItem.Name);
-  RoomIds.Add(ListItem.RoomId);
-end;
-
-procedure TMainForm.ProcessUserRegistrationSuccess(Msg: PChar);
-var
+Var 
   UserItem: PUser;
   ParsedUser: RUser;
-begin
+Begin
   New(UserItem);
 
   ParsedUser := ParseServerUserRegistrationSuccessMessage(Msg);
- 
-  New(CurrentUser); 
+
+  New(CurrentUser);
   CurrentUser^.UserID := ParsedUser.UserID;
   CurrentUser^.Nickname := ParsedUser.Nickname;
   CurrentUser^.Color := ParsedUser.Color;
   CurrentUser^.RoomID := ParsedUser.RoomID;
 
-  with (UserItem^) do
-  begin
-    UserID := '';
-    Nickname := 'Everyone';
-    Color := '#000000';
-    RoomID := CurrentUser^.RoomID;
-  end;
+  With (UserItem^) Do
+    Begin
+      UserID := '';
+      Nickname := 'Everyone';
+      Color := '#000000';
+      RoomID := CurrentUser^.RoomID;
+    End;
 
   UsersList.Items.Insert(0, UserItem^.Nickname);
 
-  if not Assigned(ChatUsers) then
+  If Not Assigned(ChatUsers) Then
     ChatUsers := TList.Create;
 
   ChatUsers.Insert(0, UserItem);
@@ -460,116 +503,140 @@ begin
   SetChatEnabled(True);
 
   IsLogginIn := False;
+  ReadyForNotifications := True;
 
   UsersList.ItemIndex := 0;
-end;
+End;
 
-procedure TMainForm.ProcessUserListAdd(Msg: PChar);
-var
+Procedure TMainForm.ProcessUserListAdd(Msg: PChar);
+
+Var 
   UserItem: PUser;
-begin
+Begin
   New(UserItem);
   UserItem^ := ParseUserAddMessage(Msg);
 
-  if not Assigned(ChatUsers) then
+  If Not Assigned(ChatUsers) Then
     ChatUsers := TList.Create;
 
   ChatUsers.Add(UserItem);
   UsersList.Items.Add(UserItem^.Nickname);
-end;
+End;
 
-procedure TMainForm.ProcessUserListRemove(Msg: PChar);
-var
+Procedure TMainForm.ProcessUserListRemove(Msg: PChar);
+
+Var 
   UserItem: RUserRemove;
   I: Integer;
   P: PUser;
-begin
+Begin
+  If (Not Assigned(ChatUsers)) Or (ChatUsers = Nil) Or (ChatUsers.Count <= 0)
+    Then
+    Exit;
+
   UserItem := ParseUserRemoveMessage(Msg);
 
-  if SelectedUserTo^.UserID = UserItem.UserID then
-  begin
-    SelectedUserTo := PUser(ChatUsers[0]);
-    LblUserTo.Caption := SelectedUserTo^.Nickname;
-    LblUserTo.Font.Color := HtmlToDelphiColor(SelectedUserTo^.Color);
-  end;
+  If SelectedUserTo^.UserID = UserItem.UserID Then
+    Begin
+      SelectedUserTo := PUser(ChatUsers[0]);
+      LblUserTo.Caption := SelectedUserTo^.Nickname;
+      LblUserTo.Font.Color := HtmlToDelphiColor(SelectedUserTo^.Color);
+    End;
 
-  for I := 0 to ChatUsers.Count - 1 do
-  begin
-    P := PUser(ChatUsers[I]);
-    if P^.UserID = UserItem.UserID then
-    begin
-      Dispose(PUser(ChatUsers[I]));
-      ChatUsers.Delete(I);
+  For I := 0 To ChatUsers.Count - 1 Do
+    Begin
+      P := PUser(ChatUsers[I]);
+      If P^.UserID = UserItem.UserID Then
+        Begin
+          Dispose(PUser(ChatUsers[I]));
+          ChatUsers.Delete(I);
 
-      UsersList.Items.Delete(I);
+          UsersList.Items.Delete(I);
 
-      Break;
-    end;
-  end;
-end;
+          Break;
+        End;
+    End;
+End;
 
-procedure TMainForm.ProcessMessageSent(Msg: PChar);
-var
+Procedure TMainForm.ProcessMessageSent(Msg: PChar);
+
+Var 
   ChatMessage: RServerChatMessage;
-begin
+Begin
   ChatMessage := ParseServerChatMessageSentMessage(Msg);
   AppendMessageToViewer(ChatMessage);
-end;
+End;
 
-procedure TMainForm.ProcessMessage(Msg: PChar);
-var
+Procedure TMainForm.ProcessUserKicked(Msg: PChar);
+
+Var 
+  KickMessage: RServerUserKickedMessage;
+Begin
+  KickMessage := ParseServerUserKickedMessage(Msg);
+  IsKicked := True;
+  DisconnectFromServer;
+
+  MessageDlg(KickMessage.Reason, mtError, [mbOK], 0);
+End;
+
+Procedure TMainForm.ProcessMessage(Msg: PChar);
+
+Var 
   MessageType: String;
-begin
+Begin
   MessageType := GetMessageType(Msg);
 
-  if MessageType = SERVER_ERROR then
+  If MessageType = SERVER_ERROR Then
     ProcessServerError(Msg)
-  else if MessageType = SERVER_COLOR_LIST then
-    ProcessColorList(Msg)
-  else if MessageType = SERVER_ROOM_LIST_START then
-    ProcessRoomListStart
-  else if MessageType = SERVER_ROOM_LIST_END then
-    ProcessRoomListEnd
-  else if MessageType = SERVER_ROOM_LIST_ITEM then
-    ProcessRoomListItem(Msg)
-  else if MessageType = SERVER_USER_REGISTRATION_SUCCESS then
-    ProcessUserRegistrationSuccess(Msg)
-  else if MessageType = SERVER_USER_LIST_ADD then
-    ProcessUserListAdd(Msg)
-  else if MessageType = SERVER_USER_LIST_REMOVE then
-    ProcessUserListRemove(Msg)
-  else if MessageType = SERVER_MESSAGE_SENT then
-    ProcessMessageSent(Msg)
-  else
+  Else If MessageType = SERVER_COLOR_LIST Then
+         ProcessColorList(Msg)
+  Else If MessageType = SERVER_ROOM_LIST Then
+         ProcessRoomList(Msg)
+  Else If MessageType = SERVER_USER_REGISTRATION_SUCCESS Then
+         ProcessUserRegistrationSuccess(Msg)
+  Else If MessageType = SERVER_USER_LIST_ADD Then
+         ProcessUserListAdd(Msg)
+  Else If MessageType = SERVER_USER_LIST_REMOVE Then
+         ProcessUserListRemove(Msg)
+  Else If MessageType = SERVER_MESSAGE_SENT Then
+         ProcessMessageSent(Msg)
+  Else If MessageType = SERVER_USER_KICKED Then
+         ProcessUserKicked(Msg)
+  Else
     ShowMessage('Unknown Message');
-end;
+End;
 
-procedure TMainForm.CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
-var
+Procedure TMainForm.CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
+
+Var 
   Len, I, J: Integer;
   messageBuffer: PChar;
   bufferSize, oldBufferSize: Integer;
   messageBufferLen: Integer;
-begin
-  if CommSocket.State = wsClosed then
-  begin
-    CommSocketSessionClosed(Sender, ErrCode);
-    Exit;
-  end;
+Begin
+  If CommSocket.State = wsClosed Then
+    Begin
+      CommSocketSessionClosed(Sender, ErrCode);
+      Exit;
+    End;
+
 
   { Set an initial buffer size }
   bufferSize := 1024;
   GetMem(messageBuffer, bufferSize);
-  messageBuffer[0] := #0; { Initialize the buffer to be an empty string }
+  messageBuffer[0] := #0;
+          { Initialize the buffer to be an empty string }
   messageBufferLen := 0;
 
   { Receive the data that has arrived, put it after the data already here }
-  Len := TWSocket(Sender).Receive(@FRcvBuf[FRcvCnt], SizeOf(FRcvBuf) - FRcvCnt - 1);
-  if Len <= 0 then
-  begin
-    FreeMem(messageBuffer, bufferSize);
-    Exit;
-  end;
+  Len := TWSocket(Sender).Receive(@FRcvBuf[FRcvCnt], SizeOf(FRcvBuf) -
+         FRcvCnt -
+         1);
+  If Len <= 0 Then
+    Begin
+      FreeMem(messageBuffer, bufferSize);
+      Exit;
+    End;
 
   { Update our counter }
   FRcvCnt := FRcvCnt + Len;
@@ -577,211 +644,289 @@ begin
   FRcvBuf[FRcvCnt] := #0;
 
   I := 0;
-  while I < FRcvCnt do
-    if FRcvBuf[I] = #13 then
-    begin
+  While I < FRcvCnt Do
+    If FRcvBuf[I] = #13 Then
+      Begin
       { Concatenate characters up to this point into the messageBuffer }
-      for J := 0 to I - 1 do
-        if FRcvBuf[J] <> #0 then
-        begin
-          if messageBufferLen + 1 >= bufferSize then
-          begin
+        For J := 0 To I - 1 Do
+          If FRcvBuf[J] <> #0 Then
+            Begin
+              If messageBufferLen + 1 >= bufferSize Then
+                Begin
             { Expand the buffer if necessary }
-            oldBufferSize := bufferSize;
-            bufferSize := bufferSize * 2;
-            ReallocMem(messageBuffer, oldBufferSize, bufferSize);
-          end;
-          messageBuffer[messageBufferLen] := FRcvBuf[J];
-          Inc(messageBufferLen);
-        end;
+                  oldBufferSize := bufferSize;
+                  bufferSize := bufferSize * 2;
+                  ReallocMem(messageBuffer, oldBufferSize, bufferSize);
+                End;
+              messageBuffer[messageBufferLen] := FRcvBuf[J];
+              Inc(messageBufferLen);
+            End;
 
       { Null-terminate the messageBuffer }
-      messageBuffer[messageBufferLen] := #0;
+        messageBuffer[messageBufferLen] := #0;
 
       { Process the complete message }
-      Self.ProcessMessage(messageBuffer);
+        Self.ProcessMessage(messageBuffer);
 
       { Move the remaining data in the buffer to the beginning }
-      Move(FRcvBuf[I + 2], FRcvBuf[0], FRcvCnt - I - 2);
-      FRcvCnt := FRcvCnt - I - 2; { Adjust the count for the remaining data }
+        Move(FRcvBuf[I + 2], FRcvBuf[0], FRcvCnt - I - 2);
+        FRcvCnt := FRcvCnt - I - 2; { Adjust the count for the remaining data }
 
       { Null-terminate the remaining buffer again for safety }
-      FRcvBuf[FRcvCnt] := #0;
+        FRcvBuf[FRcvCnt] := #0;
 
       { Reset the index to start processing from the beginning }
-      I := 0;
-      messageBufferLen := 0;
-    end
-    else
+        I := 0;
+        messageBufferLen := 0;
+      End
+    Else
       Inc(I);
 
   { Free the allocated memory for the message buffer }
   FreeMem(messageBuffer, bufferSize);
-end;
+End;
 
 
-procedure TMainForm.Login;
-begin
-  {Ask for colors}
-  CommSocket.SendStr(CLIENT_COLOR_LIST_REQUEST);
-  CommSocket.SendStr(CLIENT_ROOM_LIST_REQUEST);
-end;
+Procedure TMainForm.Login;
+Begin
+  OpenLoginModal;
 
-procedure TMainForm.CommSocketSessionConnected(Sender: TObject;
-  ErrCode: Word);
-begin
-  if (LoginModalShown = False) and (CommSocket.State = wsConnected) then
+  If (Not Assigned(RoomIds)) Or
+     (RoomIds.Count <= 0) Then
+    CommSocket.SendStr(CLIENT_ROOM_LIST_REQUEST);
+
+  If (Not Assigned(ConnectionDialog.NicknameColors)) Or
+     (ConnectionDialog.NicknameColors.Count <= 0) Then
+    CommSocket.SendStr(CLIENT_COLOR_LIST_REQUEST);
+End;
+
+Procedure TMainForm.CommSocketSessionConnected(Sender: TObject;
+                                               ErrCode: Word);
+Begin
+  If (LoginModalShown = False) And (CommSocket.State = wsConnected) Then
     Self.Login;
 
 
-  if (CommSocket.State = wsConnected) then
-    SetStatus('Connected!');
+  If (CommSocket.State = wsConnected) Then
+    SetConnectionStatus(True);
 
-end;
+End;
 
-procedure TMainForm.CommSocketSessionClosed(Sender: TObject;
-  ErrCode: Word);
-begin
-  SetStatus('Disconnected...');
+Function TMainForm.GetStateMessage(WasConnectedMessge: String;
+                                   WasNotConnectedMessage: String): String;
+Begin
+  If MenuItemConnect.Enabled Then
+    Result := WasNotConnectedMessage
+  Else
+    Result := WasConnectedMessge;
+End;
+
+Procedure TMainForm.CommSocketSessionClosed(Sender: TObject;
+                                            ErrCode: Word);
+
+Var 
+  Error: String;
+  Message: String;
+Begin
+  Error := WSocketErrorDesc(ErrCode);
+  If Not IsKicked And Not IsManualDisconnect Then
+    Begin
+      If (Error = 'No Error') Or (Error = 'Socket is not connected')  Then
+        Message := GetStateMessage('Connection with the server lost.',
+                   'Could not connect to the server ' +
+                   'at this time, try again later.');
+
+      If (Message <> '') Then
+        MessageDlg(Message, mtError, [mbOK], 0);
+    End;
+
+  SetConnectionStatus(False);
   SetChatEnabled(False);
-end;
+End;
 
-procedure TMainForm.CommSocketSocksConnected(Sender: TObject;
-  ErrCode: Word);
-begin
-  SetStatus('Connected1...');
-end;
+Procedure TMainForm.CommSocketSocksConnected(Sender: TObject;
+                                             ErrCode: Word);
+Begin
+  SetConnectionStatus(True)
+End;
 
-procedure TMainForm.FormActivate(Sender: TObject);
-begin
+Procedure TMainForm.SetConnectionStatus(Connected: Boolean);
+Begin
+  MenuItemConnect.Enabled := Not Connected;
+  MenuItemDisconnect.Enabled := Connected;
+
+  If Connected Then
+    SetStatus('Connected!')
+  Else
+    SetStatus('Disconnected.')
+End;
+
+Procedure TMainForm.ConnectToServer;
+Begin
   CmbSpeechMode.ItemIndex := 0;
   SetChatEnabled(False);
 
-  if CommSocket.State = wsClosed then
-  begin
-    CommSocket.SocksLevel := '5';
+  If CommSocket.State = wsClosed Then
+    Begin
+      CommSocket.SocksLevel := '5';
 
-    CommSocket.SocksServer         := '';
-    CommSocket.SocksPort           := '1080';
-    CommSocket.Proto               := 'tcp';
-    CommSocket.Addr                := '192.168.1.60';
-    CommSocket.Port                := '8081';
-    CommSocket.Connect;
+      CommSocket.SocksServer         := '';
+      CommSocket.SocksPort           := '1080';
+      CommSocket.Proto               := 'tcp';
+      CommSocket.Addr                := '192.168.1.60';
+      CommSocket.Port                := '8081';
+      CommSocket.Connect;
 
-    SetStatus('Connecting...');
-  end;
-end;
+      SetConnectionStatus(False);
 
-procedure TMainForm.UsersListDrawItem(Control: TWinControl; Index: Integer;
-  Rect: TRect; State: TOwnerDrawState);
-var
+      SetStatus('Connecting...');
+    End;
+End;
+
+Procedure TMainForm.DisconnectFromServer;
+Begin
+  If CommSocket.State <> wsClosed Then
+    Try
+      CommSocket.Close;
+    Except
+      on E: Exception Do
+            ShowMessage('Error closing socket: ' + E.Message);
+End;
+End;
+
+Procedure TMainForm.FormActivate(Sender: TObject);
+Begin
+  ConnectToServer;
+End;
+
+Procedure TMainForm.UsersListDrawItem(Control: TWinControl; Index: Integer;
+                                      Rect: TRect; State: TOwnerDrawState);
+
+Var 
   TextColor: TColor;
   UserItem: PUser;
-begin
-  if ChatUsers = nil then
+Begin
+  If (Not Assigned(ChatUsers)) Or (ChatUsers = Nil) Or (Index >= ChatUsers.Count) Then
     Exit;
 
   UserItem := PUser(ChatUsers[Index]);
-  with (Control as TListBox).Canvas do
-  begin
+  With (Control as TListBox).Canvas Do
+    Begin
 
 
-    if Assigned(UserItem) then
-      TextColor := HtmlToDelphiColor(UserItem^.Color)
-    else
-      TextColor := clBlack;
+      If Assigned(UserItem) Then
+        TextColor := HtmlToDelphiColor(UserItem^.Color)
+      Else
+        TextColor := clBlack;
 
-    if odSelected in State then
-      Brush.Color := $00FFD2A6
-    else
-      Brush.Color := UsersList.Color;
+      If odSelected In State Then
+        Brush.Color := $00FFD2A6
+      Else
+        Brush.Color := UsersList.Color;
 
-    FillRect(Rect);
-    Font.Color := TextColor;
-    TextOut(Rect.Left, Rect.Top, (Control as TListBox).Items[Index]);
+      FillRect(Rect);
+      Font.Color := TextColor;
+      TextOut(Rect.Left, Rect.Top, (Control as TListBox).Items[Index]);
 
 
-    if odFocused in State then DrawFocusRect(Rect){Brush.Color := UsersList.Color;};
-  end;
-end;
+      If odFocused In State Then DrawFocusRect(Rect)
+        {Brush.Color := UsersList.Color;};
+    End;
+End;
 
-procedure TMainForm.FormDestroy(Sender: TObject);
-var
+Procedure TMainForm.FormDestroy(Sender: TObject);
+
+Var 
   I: Integer;
-begin
-  if CommSocket.State <> wsClosed then
-    try
+Begin
+  If CommSocket.State <> wsClosed Then
+    Try
       CommSocket.Close;
-    except
-      on E: Exception do
-        ShowMessage('Error closing socket: ' + E.Message);
-    end;
+    Except
+      on E: Exception Do
+            ShowMessage('Error closing socket: ' + E.Message);
+End;
 
-  if ChatUsers <> nil then
-    for I := 0 to ChatUsers.Count - 1 do
-    begin
-      if (ChatUsers[I] <> nil) then
+If (Assigned(ChatUsers)) And (ChatUsers <> Nil) Then
+  For I := 0 To ChatUsers.Count - 1 Do
+    Begin
+      If (ChatUsers[I] <> Nil) Then
         Dispose(PUser(ChatUsers[I]));
-    end;
+    End;
 
-  ChatUsers.Free;
-  ChatUsers := nil;
-  RoomNames.Free;
-  RoomNames := nil;
-  RoomIds.Free;
-  RoomIds := nil;
+ChatUsers.Free;
+ChatUsers := Nil;
+RoomIds.Free;
+RoomIds := Nil;
 
-  FinalizeStream;
-end;
+FinalizeStream;
+End;
 
-procedure TMainForm.FormCreate(Sender: TObject);
-begin
-  if not Assigned(RoomNames) then
-    RoomNames := TStringList.Create;
-
-  if not Assigned(RoomIds) then
+Procedure TMainForm.FormCreate(Sender: TObject);
+Begin
+  If Not Assigned(RoomIds) Then
     RoomIds := TStringList.Create;
 
-  if not Assigned(ChatUsers) then
+  If Not Assigned(ChatUsers) Then
     ChatUsers := TList.Create;
-    
+
   IsLogginIn := False;
   IsFirstMessage := True;
-end;
+  ReadyForNotifications := False;
+  IsKicked := False;
+  IsManualDisconnect := False;
+End;
 
-procedure TMainForm.FormResize(Sender: TObject);
-var
+Procedure TMainForm.FormResize(Sender: TObject);
+
+Var 
   ButtonSpace: Integer;
-begin
+Begin
   BtnSend.Left := ClientWidth - BtnSend.Width - 3;
   EditMessage.Width := ClientWidth - (EditMessage.Left * 2) - BtnSend.Width - 4;
-end;
+End;
 
-procedure TMainForm.EditMessageKeyPress(Sender: TObject; var Key: Char);
-begin
-  if Key = #13 then
-  begin
-    SendMessage(self);
-    Key := #0;
-  end;
-end;
+Procedure TMainForm.EditMessageKeyPress(Sender: TObject; Var Key: Char);
+Begin
+  If Key = #13 Then
+    Begin
+      SendMessage(self);
+      Key := #0;
+    End;
+End;
 
-procedure TMainForm.UsersListDblClick(Sender: TObject);
-begin
+Procedure TMainForm.UsersListDblClick(Sender: TObject);
+Begin
   SelectedUserTo := PUser(ChatUsers[UsersList.ItemIndex]);
   LblUserTo.Caption := SelectedUserTo^.Nickname;
   LblUserTo.Font.Color := HtmlToDelphiColor(SelectedUserTo^.Color);
-end;
+End;
 
-procedure TMainForm.CommSocketSocksError(Sender: TObject; Error: Integer;
-  Msg: String);
-begin
-  ShowMessage('Socks Error man');  
-end;
+Procedure TMainForm.MenuItemAboutClick(Sender: TObject);
+Begin
+  AboutBox.ShowModal;
+End;
 
-procedure TMainForm.CommSocketError(Sender: TObject);
-begin
-  ShowMessage('OnError Man..');
-end;
+Procedure TMainForm.CommSocketSocksError(Sender: TObject; Error: Integer;
+                                         Msg: String);
+Begin
+  ShowMessage(Msg);
+End;
 
-end.
+Procedure TMainForm.CommSocketError(Sender: TObject);
+Begin
+     {Do nothing}
+End;
+
+Procedure TMainForm.MenuItemConnectClick(Sender: TObject);
+Begin
+  ConnectToServer;
+End;
+
+Procedure TMainForm.MenuItemDisconnectClick(Sender: TObject);
+Begin
+  IsManualDisconnect := True;
+  DisconnectFromServer;
+End;
+
+End.
