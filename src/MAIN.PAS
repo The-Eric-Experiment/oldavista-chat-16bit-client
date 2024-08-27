@@ -78,6 +78,12 @@ Type
     Procedure CommSocketError(Sender: TObject);
     Procedure MenuItemConnectClick(Sender: TObject);
     Procedure MenuItemDisconnectClick(Sender: TObject);
+    Procedure MenuItemAutoScrollClick(Sender: TObject);
+    Procedure MenuItemExitClick(Sender: TObject);
+    Function GetUserByID(UserID: String): PUser;
+    Function GetUserIndexByID(UserID: String): Integer;
+    Function GetRoomName(RoomID: String): String;
+    Procedure SetRoomName(RoomName: String);
     Private 
       RoomIds: TStringList;
       FRcvBuf: array [0..8191] Of char;
@@ -141,6 +147,14 @@ Begin
     End;
 End;
 
+Procedure TMainForm.SetRoomName(RoomName: String);
+Begin
+  If RoomName = '' Then
+    MainForm.Caption := 'Old''aVista Chat!'
+  Else
+    MainForm.Caption := '[' + RoomName + '] - Old''aVista Chat!';
+End;
+
 Procedure TMainForm.SetStatus(Status: String);
 Begin
   StatusPanel.Caption := Status;
@@ -170,6 +184,7 @@ Begin
       IsLogginIn := False;
       ReadyForNotifications := False;
       IsManualDisconnect := False;
+      SetRoomName('');
 
       MsgHtmlViewer.Clear;
 
@@ -211,15 +226,7 @@ Begin
   sndPlaySound('notif.wav', SND_ASYNC Or SND_NODEFAULT);
 End;
 
-Procedure TMainForm.AppendMessageToViewer(Msg: RServerChatMessage);
-
-Var 
-  StringBuilder: TStringStreamBuilder;
-  Stream: TMemoryStream;
-  UserColor, SystemMessageReplacement: string;
-  Position: Integer;
-
-Function GetUserByID(UserID: String): PUser;
+Function TMainForm.GetUserByID(UserID: String): PUser;
 
 Var 
   I: Integer;
@@ -236,6 +243,63 @@ Begin
   If CurrentUser^.UserID = UserID Then
     Result := CurrentUser;
 End;
+
+Function TMainForm.GetRoomName(RoomId: String): String;
+
+Var 
+  I: Integer;
+Begin
+  If (Not Assigned(RoomIds)) Or (RoomIds = Nil) Or (RoomIds.Count <= 0)
+    Then
+    Begin
+      Result := '';
+      Exit;
+    End;
+
+  Result := '';
+  For I := 0 To RoomIds.Count - 1 Do
+    If RoomIds[I] = RoomId Then
+      Begin
+        Result := ConnectionDialog.RoomSelector.Items[I];
+        Exit;
+      End;
+
+  If Assigned(CurrentUser) And (CurrentUser^.UserID = RoomID) Then
+    Result := '';
+End;
+
+Function TMainForm.GetUserIndexByID(UserID: String): Integer;
+
+Var 
+  I: Integer;
+Begin
+  If (Not Assigned(ChatUsers)) Or (ChatUsers = Nil) Or (ChatUsers.Count <= 0)
+    Then
+    Begin
+      Result := -1;
+      Exit;
+    End;
+
+  Result := -1; { Return -1 if the user is not found }
+  For I := 0 To ChatUsers.Count - 1 Do
+    If PUser(ChatUsers[I])^.UserID = UserID Then
+      Begin
+        Result := I;
+        Exit;
+      End;
+
+  { Check if the ID matches the current user }
+  If Assigned(CurrentUser) And (CurrentUser^.UserID = UserID) Then
+    Result := -2; { Special case for current user, if needed }
+End;
+
+Procedure TMainForm.AppendMessageToViewer(Msg: RServerChatMessage);
+
+Var 
+  StringBuilder: TStringStreamBuilder;
+  Stream: TMemoryStream;
+  UserColor, SystemMessageReplacement: string;
+  Position: Integer;
 
 Begin
   StringBuilder := TStringStreamBuilder.Create;
@@ -340,9 +404,10 @@ Begin
     { Load the final stream into the HTML viewer }
     Self.MsgHtmlViewer.LoadFromStream(ChatMessageStream);
 
-    { Ensure scrollbar is correctly positioned at the end }
-    Self.MsgHtmlViewer.VScrollBarPosition := 
-                                             Self.MsgHtmlViewer.VScrollBarRange;
+    If MenuItemAutoScroll.Checked Then
+      Self.MsgHtmlViewer.VScrollBarPosition := 
+                                               Self.MsgHtmlViewer.
+                                               VScrollBarRange;
 
     PlayNotificationSound(Msg);
   Finally
@@ -360,6 +425,9 @@ Var MessageRec: RMessage;
 
 Var SpchMode: String;
 Begin
+  If Length(EditMessage.Text) <= 0 Then
+    Exit;
+
   Case CmbSpeechMode.ItemIndex Of 
     0: SpchMode := 'says-to';
     1: SpchMode := 'screams-at';
@@ -387,6 +455,9 @@ Begin
 
   CommSocket.SendStr(Msg);
   EditMessage.Text := '';
+
+  If CmbSpeechMode.ItemIndex = 1 Then
+    CmbSpeechMode.ItemIndex := 0;
 End;
 
 Procedure TMainForm.BtnSendClick(Sender: TObject);
@@ -474,7 +545,12 @@ Procedure TMainForm.ProcessUserRegistrationSuccess(Msg: PChar);
 Var 
   UserItem: PUser;
   ParsedUser: RUser;
+  ListIndex: Integer;
+  RoomName: String;
 Begin
+  RoomName := GetRoomName(CurrentRoom);
+  SetRoomName(RoomName);
+
   New(UserItem);
 
   ParsedUser := ParseServerUserRegistrationSuccessMessage(Msg);
@@ -500,6 +576,12 @@ Begin
 
   ChatUsers.Insert(0, UserItem);
 
+{Add (me) to username}
+  ListIndex := GetUserIndexByID(ParsedUser.UserID);
+
+  If ListIndex >= 0 Then
+    UsersList.Items[ListIndex] := ParsedUser.Nickname + ' (Me)';
+
   SetChatEnabled(True);
 
   IsLogginIn := False;
@@ -512,6 +594,7 @@ Procedure TMainForm.ProcessUserListAdd(Msg: PChar);
 
 Var 
   UserItem: PUser;
+  ListNickname: String;
 Begin
   New(UserItem);
   UserItem^ := ParseUserAddMessage(Msg);
@@ -519,8 +602,13 @@ Begin
   If Not Assigned(ChatUsers) Then
     ChatUsers := TList.Create;
 
+  ListNickname := UserItem^.Nickname;
+
+  If (Assigned(CurrentUser)) And (CurrentUser^.UserID = UserItem^.UserID) Then
+    ListNickname := UserItem^.Nickname + ' (Me)';
+
   ChatUsers.Add(UserItem);
-  UsersList.Items.Add(UserItem^.Nickname);
+  UsersList.Items.Add(ListNickname);
 End;
 
 Procedure TMainForm.ProcessUserListRemove(Msg: PChar);
@@ -536,26 +624,23 @@ Begin
 
   UserItem := ParseUserRemoveMessage(Msg);
 
-  If SelectedUserTo^.UserID = UserItem.UserID Then
+  If (Assigned(SelectedUserTo)) And (SelectedUserTo <> Nil) And (SelectedUserTo^
+     .UserID = UserItem.UserID) Then
     Begin
       SelectedUserTo := PUser(ChatUsers[0]);
       LblUserTo.Caption := SelectedUserTo^.Nickname;
       LblUserTo.Font.Color := HtmlToDelphiColor(SelectedUserTo^.Color);
     End;
 
-  For I := 0 To ChatUsers.Count - 1 Do
-    Begin
-      P := PUser(ChatUsers[I]);
-      If P^.UserID = UserItem.UserID Then
-        Begin
-          Dispose(PUser(ChatUsers[I]));
-          ChatUsers.Delete(I);
+  I := GetUserIndexByID(UserItem.UserID);
 
-          UsersList.Items.Delete(I);
+  If I < 0 Then
+    Exit;
 
-          Break;
-        End;
-    End;
+  Dispose(PUser(ChatUsers[I]));
+  ChatUsers.Delete(I);
+
+  UsersList.Items.Delete(I);
 End;
 
 Procedure TMainForm.ProcessMessageSent(Msg: PChar);
@@ -805,34 +890,86 @@ Procedure TMainForm.UsersListDrawItem(Control: TWinControl; Index: Integer;
 Var 
   TextColor: TColor;
   UserItem: PUser;
+  TextHeightValue: Integer;
+  TextTop: Integer;
+  MainText: String;
+  Icon: TIcon;
+  IconLeft: Integer;
+  IconRect: TRect;
 Begin
-  If (Not Assigned(ChatUsers)) Or (ChatUsers = Nil) Or (Index >= ChatUsers.Count) Then
+  If (Not Assigned(ChatUsers)) Or (ChatUsers = Nil) Or (Index >= ChatUsers.Count
+     ) Then
     Exit;
 
   UserItem := PUser(ChatUsers[Index]);
+
   With (Control as TListBox).Canvas Do
     Begin
-
-
-      If Assigned(UserItem) Then
-        TextColor := HtmlToDelphiColor(UserItem^.Color)
-      Else
-        TextColor := clBlack;
-
+    { Set background color }
       If odSelected In State Then
-        Brush.Color := $00FFD2A6
+        Begin
+          Brush.Color := HtmlToDelphiColor(UserItem^.Color);
+          TextColor := clWhite;
+        End
       Else
-        Brush.Color := UsersList.Color;
+        Begin
+          Brush.Color := UsersList.Color;
+          TextColor := HtmlToDelphiColor(UserItem^.Color);
+        End;
 
+    { Fill the entire rectangle with the background color }
       FillRect(Rect);
+
+    { Set the font color and remove any previous brush setting }
       Font.Color := TextColor;
-      TextOut(Rect.Left, Rect.Top, (Control as TListBox).Items[Index]);
+      Brush.Style := bsClear;
 
+    { Calculate the text height and adjust the vertical position }
+      TextHeightValue := TextHeight('W');
+      TextTop := Rect.Top + (Rect.Bottom - Rect.Top - TextHeightValue) Div 2;
 
-      If odFocused In State Then DrawFocusRect(Rect)
-        {Brush.Color := UsersList.Color;};
-    End;
+    { Separate the main text from the "(Me)" part if it exists }
+      MainText := (Control as TListBox).Items[Index];
+      If (Length(MainText) >= 4) And (Copy(MainText, Length(MainText) - 3, 4) =
+         '(Me)') Then
+        Begin
+          MainText := Copy(MainText, 1, Length(MainText) - 4);
+          { Remove "(Me)" from the text }
+
+      { Draw the main text without "(Me)" }
+          TextOut(Rect.Left + 2, TextTop, MainText);
+
+      { Load the 32x32 icon }
+          Icon := TIcon.Create;
+          Try
+            Icon.LoadFromFile('me.ico');  { Load your 32x32 icon file }
+
+        { Define the target rectangle for drawing the icon as 16x16 }
+            IconLeft := Rect.Left + 2 + TextWidth(MainText);
+            IconRect.Left := IconLeft;
+            IconRect.Top := Rect.Top + (Rect.Bottom - Rect.Top - 16) Div 2;
+            IconRect.Right := IconLeft + 16;
+            IconRect.Bottom := IconRect.Top + 16;
+
+        { Draw the icon cropped to 16x16 using StretchDraw }
+            StretchDraw(IconRect, Icon);
+          Finally
+            Icon.Free;
+        End;
+    End
+    Else
+      Begin
+      { Draw the main text normally if "(Me)" is not present }
+        TextOut(Rect.Left + 2, TextTop, MainText);
+      End;
+
+    { Draw the focus rectangle if the item is focused }
+  If odFocused In State Then
+    DrawFocusRect(Rect);
 End;
+End;
+
+
 
 Procedure TMainForm.FormDestroy(Sender: TObject);
 
@@ -927,6 +1064,18 @@ Procedure TMainForm.MenuItemDisconnectClick(Sender: TObject);
 Begin
   IsManualDisconnect := True;
   DisconnectFromServer;
+End;
+
+Procedure TMainForm.MenuItemAutoScrollClick(Sender: TObject);
+Begin
+  MenuItemAutoScroll.Checked := Not MenuItemAutoScroll.Checked;
+End;
+
+Procedure TMainForm.MenuItemExitClick(Sender: TObject);
+Begin
+  IsManualDisconnect := True;
+  DisconnectFromServer;
+  Close;
 End;
 
 End.
