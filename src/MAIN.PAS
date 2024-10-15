@@ -6,7 +6,7 @@ Interface
 Uses 
 SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
 Forms, Dialogs, StdCtrls, WSocket, ExtCtrls, ProtocolMessages, MMSystem,
-Readhtml, Htmlview, StrmBldr, GIFImage, Toolbar, Buttons, Menus, About;
+Readhtml, Htmlview, StrmBldr, Buttons, Menus, About;
 
 Type 
   PUser = ^RUser;
@@ -50,7 +50,7 @@ Type
     Procedure ProcessUserRegistrationSuccess(Msg: PChar);
     Procedure ProcessUserListAdd(Msg: PChar);
     Procedure ProcessUserListRemove(Msg: PChar);
-    Procedure ProcessMessage(Msg: PChar);
+    Procedure ProcessMessage(MessageType: Word; MessageLength: Word; MessageContent: PChar);
     Procedure ProcessMessageSent(Msg: PChar);
     Procedure ProcessUserKicked(Msg: PChar);
     Procedure Login;
@@ -61,6 +61,7 @@ Type
     Procedure SendMessage(Sender: TObject);
     Procedure InitializeStream;
     Procedure FinalizeStream;
+    Function SwapWord(Value: Word): Word;
     Procedure AppendMessageToViewer(Msg: RServerChatMessage);
     Procedure UsersListDblClick(Sender: TObject);
     Procedure SetStatus(Status: String);
@@ -86,8 +87,8 @@ Type
     Procedure SetRoomName(RoomName: String);
     Private 
       RoomIds: TStringList;
-      FRcvBuf: array [0..8191] Of char;
-      FRcvCnt: Integer;
+      FReceiveBuffer: array [0..8191] Of char;
+      FBufferedDataLength: Integer;
       ChatUsers: TList;
       LoginModalShown: Boolean;
       CurrentUser: PUser;
@@ -168,7 +169,7 @@ Begin
   UsersList.Enabled := Val;
   EditMessage.Enabled := Val;
   BtnSend.Enabled := Val;
-  MsgHtmlViewer.Enabled := Val;
+  MsgHtmlViewer.Enabled := Val;                                                               
   CkPrivately.Enabled := Val;
   CmbSpeechMode.Enabled := Val;
   LblUserTo.Enabled := Val;
@@ -418,16 +419,16 @@ End;
 
 
 Procedure TMainForm.SendMessage(Sender: TObject);
-
-Var Msg: String;
-
-Var MessageRec: RMessage;
-
-Var SpchMode: String;
+Var 
+  Msg: PChar;       { The message to send, now PChar }
+  MessageRec: RMessage;
+  SpchMode: String;
+  MsgLength: Word;
 Begin
   If Length(EditMessage.Text) <= 0 Then
     Exit;
 
+  { Set the speech mode based on the selection }
   Case CmbSpeechMode.ItemIndex Of 
     0: SpchMode := 'says-to';
     1: SpchMode := 'screams-at';
@@ -436,6 +437,7 @@ Begin
       SpchMode := 'says-to';
   End;
 
+  { Fill the MessageRec structure }
   With MessageRec Do
     Begin
       UserID := CurrentUser^.UserID;
@@ -451,11 +453,19 @@ Begin
       RoomID := CurrentRoom;
     End;
 
-  Msg := CreateSendMessageMessage(MessageRec);
+  { Create the message with the header and content }
+  Msg := CreateSendMessageMessage(MessageRec, MsgLength);
 
-  CommSocket.SendStr(Msg);
+  { Send the message through the socket }
+  CommSocket.Send(Msg, MsgLength);
+
+  { Free the allocated memory for the message }
+  FreeMem(Msg, MsgLength);  { Free the memory using the correct size }
+
+  { Clear the message input }
   EditMessage.Text := '';
 
+  { Reset speech mode if necessary }
   If CmbSpeechMode.ItemIndex = 1 Then
     CmbSpeechMode.ItemIndex := 0;
 End;
@@ -492,12 +502,13 @@ Begin
 End;
 
 Procedure TMainForm.OpenLoginModal;
-
 Var 
   Result: TModalResult;
+  Msg: PChar;
+  MsgLength: Word;
 Begin
-  If (Not Assigned(RoomIds)) Or
-     (RoomIds.Count <= 0) Or
+  { Check if RoomIds and NicknameColors are assigned and non-empty }
+  If (Not Assigned(RoomIds)) Or (RoomIds.Count <= 0) Or
      (Not Assigned(ConnectionDialog.NicknameColors)) Or
      (ConnectionDialog.NicknameColors.Count <= 0) Then
     Exit;
@@ -506,16 +517,25 @@ Begin
   Result := ConnectionDialog.ShowModal;
   If Result = mrOk Then
     Begin
+      { Set the current room based on the user's selection }
       CurrentRoom := RoomIds[ConnectionDialog.RoomSelector.ItemIndex];
-      CommSocket.SendStr(
-                         CreateRegisterUserMessage(
-                         CurrentRoom,
-                         ConnectionDialog.NicknameEdit.Text,
-                         ConnectionDialog.NicknameColors[ConnectionDialog.
-                         ColorSelector.ItemIndex]));
+
+      { Create the register user message and receive the message length as output }
+      Msg := CreateRegisterUserMessage(
+               CurrentRoom,
+               ConnectionDialog.NicknameEdit.Text,
+               ConnectionDialog.NicknameColors[ConnectionDialog.ColorSelector.ItemIndex],
+               MsgLength);  { MessageLength is now returned here }
+
+      { Send the message through the socket }
+      CommSocket.Send(Msg, MsgLength);
+
+      { Free the allocated memory for the message }
+      FreeMem(Msg, MsgLength);
     End
   Else
     Application.Terminate;
+
   LoginModalShown := True;
 End;
 
@@ -664,126 +684,131 @@ Begin
   MessageDlg(KickMessage.Reason, mtError, [mbOK], 0);
 End;
 
-Procedure TMainForm.ProcessMessage(Msg: PChar);
-
-Var 
-  MessageType: String;
+Procedure TMainForm.ProcessMessage(MessageType: Word; MessageLength: Word; MessageContent: PChar);
 Begin
-  MessageType := GetMessageType(Msg);
-
+  { Handle the message based on its type }
   If MessageType = SERVER_ERROR Then
-    ProcessServerError(Msg)
+    ProcessServerError(MessageContent)
   Else If MessageType = SERVER_COLOR_LIST Then
-         ProcessColorList(Msg)
+         ProcessColorList(MessageContent)
   Else If MessageType = SERVER_ROOM_LIST Then
-         ProcessRoomList(Msg)
+         ProcessRoomList(MessageContent)
   Else If MessageType = SERVER_USER_REGISTRATION_SUCCESS Then
-         ProcessUserRegistrationSuccess(Msg)
+         ProcessUserRegistrationSuccess(MessageContent)
   Else If MessageType = SERVER_USER_LIST_ADD Then
-         ProcessUserListAdd(Msg)
+         ProcessUserListAdd(MessageContent)
   Else If MessageType = SERVER_USER_LIST_REMOVE Then
-         ProcessUserListRemove(Msg)
+         ProcessUserListRemove(MessageContent)
   Else If MessageType = SERVER_MESSAGE_SENT Then
-         ProcessMessageSent(Msg)
+         ProcessMessageSent(MessageContent)
   Else If MessageType = SERVER_USER_KICKED Then
-         ProcessUserKicked(Msg)
+         ProcessUserKicked(MessageContent)
   Else
     ShowMessage('Unknown Message');
 End;
 
-Procedure TMainForm.CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
+Function TMainForm.SwapWord(Value: Word): Word;
+Begin
+  Result := (Value Shr 8) Or (Value Shl 8);
+End;
 
-Var 
-  Len, I, J: Integer;
-  messageBuffer: PChar;
-  bufferSize, oldBufferSize: Integer;
-  messageBufferLen: Integer;
+Procedure TMainForm.CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
+Var
+  LReceivedLength, LBufferIndex: Integer;
+  LMessageType, LMessageLength: Word;
+  LHeaderSize: Integer;
+  LMessageContent: PChar;
 Begin
   If CommSocket.State = wsClosed Then
-    Begin
-      CommSocketSessionClosed(Sender, ErrCode);
-      Exit;
-    End;
+  Begin
+    CommSocketSessionClosed(Sender, ErrCode);
+    Exit;
+  End;
 
+  { Receive the data that has arrived, and append it to the existing buffer }
+  LReceivedLength := TWSocket(Sender).Receive(@FReceiveBuffer[FBufferedDataLength], SizeOf(FReceiveBuffer)
+                  - FBufferedDataLength - 1);
+  If LReceivedLength <= 0 Then Exit; { No data received }
 
-  { Set an initial buffer size }
-  bufferSize := 1024;
-  GetMem(messageBuffer, bufferSize);
-  messageBuffer[0] := #0;
-          { Initialize the buffer to be an empty string }
-  messageBufferLen := 0;
+  { Update the buffer with the new data }
+  FBufferedDataLength := FBufferedDataLength + LReceivedLength;
 
-  { Receive the data that has arrived, put it after the data already here }
-  Len := TWSocket(Sender).Receive(@FRcvBuf[FRcvCnt], SizeOf(FRcvBuf) -
-         FRcvCnt -
-         1);
-  If Len <= 0 Then
-    Begin
-      FreeMem(messageBuffer, bufferSize);
-      Exit;
-    End;
+  { Header size is 4 bytes: 2 bytes for message type, 2 bytes for message length }
+  LHeaderSize := 4;
+  LBufferIndex := 0;
 
-  { Update our counter }
-  FRcvCnt := FRcvCnt + Len;
-  { Place a null byte at the end of the buffer }
-  FRcvBuf[FRcvCnt] := #0;
+  While LBufferIndex < FBufferedDataLength Do
+  Begin
+    { Check if we have enough data for the header (4 bytes: type + length) }
+    If (FBufferedDataLength - LBufferIndex) < LHeaderSize Then Break;  { Wait for more data if incomplete }
 
-  I := 0;
-  While I < FRcvCnt Do
-    If FRcvBuf[I] = #13 Then
-      Begin
-      { Concatenate characters up to this point into the messageBuffer }
-        For J := 0 To I - 1 Do
-          If FRcvBuf[J] <> #0 Then
-            Begin
-              If messageBufferLen + 1 >= bufferSize Then
-                Begin
-            { Expand the buffer if necessary }
-                  oldBufferSize := bufferSize;
-                  bufferSize := bufferSize * 2;
-                  ReallocMem(messageBuffer, oldBufferSize, bufferSize);
-                End;
-              messageBuffer[messageBufferLen] := FRcvBuf[J];
-              Inc(messageBufferLen);
-            End;
+    { Read the message type (2 bytes) }
+    Move(FReceiveBuffer[LBufferIndex], LMessageType, 2);
+    LMessageType := SwapWord(LMessageType); { Convert from network byte order (big endian) to host byte order }
 
-      { Null-terminate the messageBuffer }
-        messageBuffer[messageBufferLen] := #0;
+    { Read the message length (2 bytes) }
+    Move(FReceiveBuffer[LBufferIndex + 2], LMessageLength, 2);
+    LMessageLength := SwapWord(LMessageLength); { Convert from network byte order (big endian) to host byte order }
 
-      { Process the complete message }
-        Self.ProcessMessage(messageBuffer);
+    { Check if we have enough data for the full message (header + content) }
+    If (FBufferedDataLength - LBufferIndex - LHeaderSize) < LMessageLength Then Break;  { Wait for more data }
 
-      { Move the remaining data in the buffer to the beginning }
-        Move(FRcvBuf[I + 2], FRcvBuf[0], FRcvCnt - I - 2);
-        FRcvCnt := FRcvCnt - I - 2; { Adjust the count for the remaining data }
+    { Allocate memory for the message content based on its length, plus one for null terminator safety }
+    GetMem(LMessageContent, LMessageLength + 1); 
 
-      { Null-terminate the remaining buffer again for safety }
-        FRcvBuf[FRcvCnt] := #0;
+    { Clear the allocated memory to avoid any garbage characters or extra bytes }
+    FillChar(LMessageContent^, LMessageLength + 1, 0);
 
-      { Reset the index to start processing from the beginning }
-        I := 0;
-        messageBufferLen := 0;
-      End
-    Else
-      Inc(I);
+    { Copy exactly LMessageLength bytes from the buffer to LMessageContent }
+    Move(FReceiveBuffer[LBufferIndex + LHeaderSize], LMessageContent^, LMessageLength);
 
-  { Free the allocated memory for the message buffer }
-  FreeMem(messageBuffer, bufferSize);
+    { Pass the message to ProcessMessage (content passed as-is) }
+    Self.ProcessMessage(LMessageType, LMessageLength, LMessageContent);
+
+    { Free the allocated memory for the message content }
+    FreeMem(LMessageContent, LMessageLength + 1);
+
+    { Move the buffer index to the next message }
+    LBufferIndex := LBufferIndex + LHeaderSize + LMessageLength;
+  End;
+
+  { Move any leftover data (incomplete message) to the beginning of the buffer }
+  If LBufferIndex < FBufferedDataLength Then
+  Begin
+    Move(FReceiveBuffer[LBufferIndex], FReceiveBuffer[0], FBufferedDataLength - LBufferIndex);
+    FBufferedDataLength := FBufferedDataLength - LBufferIndex;
+  End
+  Else
+  Begin
+    FBufferedDataLength := 0;  { No leftover data, reset the buffer }
+  End;
 End;
 
 
 Procedure TMainForm.Login;
+Var
+  Msg: PChar;
+  MsgLength: Word;
 Begin
   OpenLoginModal;
 
-  If (Not Assigned(RoomIds)) Or
-     (RoomIds.Count <= 0) Then
-    CommSocket.SendStr(CLIENT_ROOM_LIST_REQUEST);
+  If (Not Assigned(RoomIds)) Or (RoomIds.Count <= 0) Then
+  Begin
+    { Send the message with no payload (4-byte header only) }
+    Msg := BuildMessageWithHeaderNoPayload(CLIENT_ROOM_LIST_REQUEST, MsgLength);
+    CommSocket.Send(Msg, MsgLength);  { Send the message with the correct length }
+    FreeMem(Msg, MsgLength);  { Free the allocated memory }
+  End;
 
-  If (Not Assigned(ConnectionDialog.NicknameColors)) Or
-     (ConnectionDialog.NicknameColors.Count <= 0) Then
-    CommSocket.SendStr(CLIENT_COLOR_LIST_REQUEST);
+  If (Not Assigned(ConnectionDialog.NicknameColors)) Or (ConnectionDialog.NicknameColors.Count <= 0) Then
+  Begin
+    { Send the message with no payload (4-byte header only) }
+    Msg := BuildMessageWithHeaderNoPayload(CLIENT_COLOR_LIST_REQUEST, MsgLength);
+    CommSocket.Send(Msg, MsgLength);  { Send the message with the correct length }
+    FreeMem(Msg, MsgLength);  { Free the allocated memory }
+  End;
 End;
+
 
 Procedure TMainForm.CommSocketSessionConnected(Sender: TObject;
                                                ErrCode: Word);

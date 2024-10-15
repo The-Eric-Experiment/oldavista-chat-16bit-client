@@ -67,25 +67,27 @@ Type
   End;
 
 Const 
-  SERVER_ERROR = '0';
-  SERVER_COLOR_LIST = '1';
-  SERVER_ROOM_LIST = '2';
-  SERVER_USER_REGISTRATION_SUCCESS = '3';
-  SERVER_USER_LIST_ADD = '4';
-  SERVER_USER_LIST_REMOVE = '5';
-  SERVER_USER_LIST_UPDATE = '6';
-  SERVER_MESSAGE_SENT = '7';
-  SERVER_USER_KICKED = '8';
-  CLIENT_REGISTER_USER = '100';
-  CLIENT_SEND_MESSAGE = '101';
-  CLIENT_COLOR_LIST_REQUEST = '105';
-  CLIENT_ROOM_LIST_REQUEST = '106';
+  SERVER_ERROR = 0;
+  SERVER_COLOR_LIST = 1;
+  SERVER_ROOM_LIST = 2;
+  SERVER_USER_REGISTRATION_SUCCESS = 3;
+  SERVER_USER_LIST_ADD = 4;
+  SERVER_USER_LIST_REMOVE = 5;
+  SERVER_USER_LIST_UPDATE = 6;
+  SERVER_MESSAGE_SENT = 7;
+  SERVER_USER_KICKED = 8;
+  CLIENT_REGISTER_USER = 100;
+  CLIENT_SEND_MESSAGE = 101;
+  CLIENT_COLOR_LIST_REQUEST = 105;
+  CLIENT_ROOM_LIST_REQUEST = 106;
 
 
 Function GetMessageType(Value: PChar): String;
 Function GetMessageAsList(Value: PChar; FullMessage: Boolean): TPCharList;
 Function GetListField(Value: PChar): TStringList;
 Function Quotation(Input: String): String;
+Function BuildMessageWithHeader(MessageType: Word; MessageContent: String; Var MessageLength: Word): PChar;
+Function BuildMessageWithHeaderNoPayload(MessageType: Word; Var MessageLength: Word): PChar;
 Function ParseServerError(Content: PChar): RServerError;
 Function ParseColorListMessage(Content: PChar): RColorList;
 Function ParseRoomListMessage(Content: PChar): RRoomList;
@@ -95,9 +97,8 @@ Function ParseUserRemoveMessage(Content: PChar): RUserRemove;
 Function ParseServerUserRegistrationSuccessMessage(Content: PChar): RUser;
 Function ParseServerChatMessageSentMessage(Content: PChar): RServerChatMessage;
 Function ParseServerUserKickedMessage(Content: PChar): RServerUserKickedMessage;
-Function CreateRegisterUserMessage (RoomId: String; Nickname: String; Color:
-                                    String): String;
-Function CreateSendMessageMessage(Msg: RMessage): String;
+Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String; Var MessageLength: Word): PChar;
+Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar;
 Function HtmlToDelphiColor(Const HtmlColor: String): TColor;
 Function DelphiToHtmlColor(Color: TColor): string;
 Procedure FreeServerChatMessage(Var Message: RServerChatMessage);
@@ -179,6 +180,10 @@ Begin
   MessageContent := TPCharList.Create;
   IsWithinQuotes := False;
   IsWithinList := False;
+  {This exists because previously we could receive the full message
+  with the the message type in the beginning, so we'd start accumulating
+  after the first space, effectively skipping the message type, this is not
+  needed anymore but I don't feel like changing it right now}
   FoundFirstSpace := Not FullMessage;
   Escaping := False;
 
@@ -282,8 +287,7 @@ End;
 
 
 Function GetListField(Value: PChar): TStringList;
-
-Var 
+Var
   i: Integer;
   MessageContent: TStringList;
   c: Char;
@@ -295,34 +299,34 @@ Begin
   Accumulator := '';
 
   i := 0;
-  If (Value[0] = '[') And (Value[1] = ']') Then
+    If (Value[0] = '[') And (Value[1] = ']') Then
     Begin
       i := 2;  { Start parsing after the brackets }
 
       While Value[i] <> #0 Do
+      Begin
+        c := Value[i];
+
+        If ((c = ',') And Not IsWithinQuotes) Then
         Begin
-          c := Value[i];
+          If Accumulator <> '' Then
+          Begin
+            MessageContent.Add(Accumulator);
+            Accumulator := '';
+          End;
+        End
+        Else If c = '"' Then
+          IsWithinQuotes := Not IsWithinQuotes
+        Else
+          Accumulator := Accumulator + c;
 
-          If ((c = ',') And Not IsWithinQuotes) Then
-            Begin
-              If Accumulator <> '' Then
-                Begin
-                  MessageContent.Add(Accumulator);
-                  Accumulator := '';
-                End;
-            End
-          Else If c = '"' Then
-                 IsWithinQuotes := Not IsWithinQuotes
-          Else
-            Accumulator := Accumulator + c;
+        Inc(i);
+      End;
 
-          Inc(i);
-        End;
-
-    { Add the last accumulated string if any }
+      { Add the last accumulated string if any }
       If Accumulator <> '' Then
         MessageContent.Add(Accumulator);
-    End;
+  End;
 
   Result := MessageContent;
 End;
@@ -354,7 +358,7 @@ Var
   ServerErrorMsg: RServerError;
 Begin
   Try
-    Fields := GetMessageAsList(Content, True);
+    Fields := GetMessageAsList(Content, False);
 
     With ServerErrorMsg Do
       Begin
@@ -375,7 +379,7 @@ Var
   ColorListMsg: RColorList;
 Begin
   Try
-    Fields := GetMessageAsList(Content, True);
+    Fields := GetMessageAsList(Content, False);
 
     With ColorListMsg Do
       Begin
@@ -396,7 +400,7 @@ Var
   ListItem: RRoomList;
 Begin
   Try
-    Fields := GetMessageAsList(Content, True);
+    Fields := GetMessageAsList(Content, False);
 
     With ListItem Do
       Begin
@@ -440,7 +444,7 @@ Var
   ListItem: RServerUserKickedMessage;
 Begin
   Try
-    Fields := GetMessageAsList(Content, True);
+    Fields := GetMessageAsList(Content, False);
 
     With ListItem Do
       Begin
@@ -455,7 +459,7 @@ End;
 
 Function ParseUserAddMessage(Content: PChar): RUser;
 Begin
-  Result := ParseServerUser(Content, True);
+  Result := ParseServerUser(Content, False);
 End;
 
 Function ParseUserRemoveMessage(Content: PChar): RUserRemove;
@@ -465,7 +469,7 @@ Var
   ListItem: RUserRemove;
 Begin
   Try
-    Fields := GetMessageAsList(Content, True);
+    Fields := GetMessageAsList(Content, False);
 
     With ListItem Do
       Begin
@@ -481,7 +485,7 @@ End;
 
 Function ParseServerUserRegistrationSuccessMessage(Content: PChar): RUser;
 Begin
-  Result := ParseServerUser(Content, True);
+  Result := ParseServerUser(Content, False);
 End;
 
 Procedure FreeServerChatMessage(Var Message: RServerChatMessage);
@@ -516,7 +520,7 @@ Var
   TempUser: RUser;
 Begin
   Try
-    Fields := GetMessageAsList(Content, True);
+    Fields := GetMessageAsList(Content, False);
 
     With Message Do
       Begin
@@ -582,18 +586,44 @@ End;
 Result := Message;
 End;
 
-
-Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color:
-                                   String): String;
+Function BuildMessageWithHeader(MessageType: Word; MessageContent: String; Var MessageLength: Word): PChar;
+Var
+  Buffer: PChar;
 Begin
-  Result := CLIENT_REGISTER_USER + ' ' + Quotation(Nickname) + ' ' + Color + ' '
-            + RoomId;
+  { Calculate the length of the message content, including the header (4 bytes) }
+  MessageLength := 4 + Length(MessageContent);
+
+  { Allocate memory for the header (4 bytes) and the message content }
+  GetMem(Buffer, MessageLength);
+
+  { Set the header (big-endian order) }
+  Buffer[0] := Chr(Hi(MessageType));   { First byte of MessageType }
+  Buffer[1] := Chr(Lo(MessageType));   { Second byte of MessageType }
+  Buffer[2] := Chr(Hi(Length(MessageContent))); { First byte of MessageLength (content only) }
+  Buffer[3] := Chr(Lo(Length(MessageContent))); { Second byte of MessageLength }
+
+  { Copy the message content directly into the buffer }
+  If Length(MessageContent) > 0 Then
+    Move(MessageContent[1], Buffer[4], Length(MessageContent));  { Copy string content starting at Buffer[4] }
+
+  { Return the constructed buffer }
+  Result := Buffer;
 End;
 
-Function CreateSendMessageMessage(Msg: RMessage): String;
+Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String; Var MessageLength: Word): PChar;
+Var
+  MessageContent: String;
+Begin
+  { Create the message content (now with spaces between parts) }
+  MessageContent := Quotation(Nickname) + ' ' + Color + ' ' + RoomId;
 
-Var 
-  StrPrivately: String;
+  { Use the helper to build the full message with the header }
+  Result := BuildMessageWithHeader(CLIENT_REGISTER_USER, MessageContent, MessageLength);
+End;
+
+Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar;
+Var
+  MessageContent, StrPrivately: String;
 Begin
   With Msg Do
     Begin
@@ -602,11 +632,19 @@ Begin
       Else
         StrPrivately := 'false';
 
-      Result := CLIENT_SEND_MESSAGE + ' ' + UserID + ' ' + Quotation(UserTo) +
-                ' ' +
-                SpeechMode + ' ' + Quotation(Message) + ' ' + StrPrivately + ' '
-                + RoomID;
+      { Create the message content }
+      MessageContent := UserID + ' ' + Quotation(UserTo) + ' ' + SpeechMode + ' ' +
+                        Quotation(Message) + ' ' + StrPrivately + ' ' + RoomID;
+
+      { Use the helper to build the full message with the header }
+      Result := BuildMessageWithHeader(CLIENT_SEND_MESSAGE, MessageContent, MessageLength);
     End;
+End;
+
+Function BuildMessageWithHeaderNoPayload(MessageType: Word; Var MessageLength: Word): PChar;
+Begin
+  { Call BuildMessageWithHeader with an empty string }
+  Result := BuildMessageWithHeader(MessageType, '', MessageLength);
 End;
 
 End.
