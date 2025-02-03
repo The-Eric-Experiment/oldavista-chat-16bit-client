@@ -6,7 +6,7 @@ Interface
 Uses 
 SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
 Forms, Dialogs, StdCtrls, WSocket, ExtCtrls, ProtocolMessages, MMSystem,
-Readhtml, Htmlview, StrmBldr, Buttons, Menus, About;
+Readhtml, Htmlview, StrmBldr, Buttons, Menus, About, AppMeta;
 
 Type 
   PUser = ^RUser;
@@ -883,8 +883,8 @@ Begin
       CommSocket.SocksServer         := '';
       CommSocket.SocksPort           := '1080';
       CommSocket.Proto               := 'tcp';
-      CommSocket.Addr                := '192.168.1.60';
-      CommSocket.Port                := '8081';
+      CommSocket.Addr                := ServerURL;
+      CommSocket.Port                := ServerPort;
       CommSocket.Connect;
 
       SetConnectionStatus(False);

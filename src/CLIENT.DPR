@@ -5,7 +5,8 @@ uses
   Main in 'MAIN.PAS' {MainForm},
   Conndiag in 'CONNDIAG.PAS' {ConnectionDialog},
   ProtocolMessages in 'MSGS.PAS',
-  About in 'ABOUT.PAS' {AboutBox};
+  About in 'ABOUT.PAS' {AboutBox},
+  Appmeta in 'APPMETA.PAS';
 
 {$R *.RES}
 

@@ -4,7 +4,7 @@ Unit ProtocolMessages;
 Interface
 
 Uses 
-SysUtils, Classes, PCharLst, Graphics;
+SysUtils, Classes, PCharLst, Graphics, AppMeta;
 
 Type 
   RServerError = Record
@@ -615,7 +615,8 @@ Var
   MessageContent: String;
 Begin
   { Create the message content (now with spaces between parts) }
-  MessageContent := Quotation(Nickname) + ' ' + Color + ' ' + RoomId;
+  MessageContent := Quotation(Nickname) + ' ' + Color + ' ' + RoomId + ' "os:(' + AppOS + 
+    ') env:(' + AppEnvironment + ') v:(' + AppVersion + ')"';
 
   { Use the helper to build the full message with the header }
   Result := BuildMessageWithHeader(CLIENT_REGISTER_USER, MessageContent, MessageLength);
