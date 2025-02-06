@@ -1,0 +1,68 @@
+Description:
+
+A fully functional splitter component. With this component,  TExplorerButton (by Fabrice Deville) and TExtPanel (by me)  you can create an application with Internet Explorer 3  interface - sizing toolbar with text behing the cool iexplore buttons.
+
+Properties/Events:
+
+*** property AllowSplit: Boolean;
+
+If False the user is not allowed to change the splitter position.
+
+*** property FullDrag: Boolean;
+
+If True the splitter position changes while the user drags the mouse, otherwise the plitter position changes when the mouse is released.
+
+*** property KeepRatio: Boolean;
+
+If True the splitter position is changed whenever the component is resized in order to preserve the ratio between the left/top and the right/bottom parts of the splitter.
+
+*** property Kind: TSplitterKind;
+
+Possible values:
+  skVertikal: The splitter line is vertical. The user can drag horizontally (left and right).
+  skHorizontal: The splitter line is horizontal. The user can drag vertically (up and down).
+
+*** property LeftControl: TControl;
+
+The control in the left/top part of the splitter.
+
+*** property RightControl: TControl;
+
+The control in the right/bottom part of the splitter.
+
+*** property Style: TSplitterStyle;
+
+Possible values:
+  ssStandard: Default splitter drawing.
+  ssOwnerDraw: Each time the splitter line between the two splitted controls needs to be drawn the OnDrawSplitter event is fired.
+
+*** property SplitterPos: Integer;
+
+Specifies the position of the splitter line, i.e. the width of the left/top control.
+
+*** property SplitterWidth: Integer;
+
+The width of the line dividing the two splitted controls (the splitter line).
+
+*** property OnDrawSplitter: TDrawSplitterEvent;
+
+This event is fired whenever the splitter line needs to be painted. The Rect parameter is the rectange of the splitter line (actually the only area of the control which is not covered by the two splitted controls).
+
+*** property OnResizing: TSplitterResizingEvent;
+
+This event is fired when the user drags the splitter.
+
+*** property OnResized: TSplitterResizedEvent;
+
+This event is fired after the splitter pos has been changed either by the user or by setting the SplitterPos property. The SplitPos parameter is the new splitter position (i fact it is always the same as the SplitterPos property).
+
+Installation:
+
+I'm not going to explain you how to install the component - this is written in the manual. The thing you should know is that SPLITTER.D16 and SPLITTER.D32 are DCR files (delphi component resource) for Delphi1 and Delphi2 respectively. Rename the file you need to SPLITTER.DCR and copy it to the same directory as SPLITTER.PAS.
+
+Author:
+
+My name is Nikolai Botev. My e-mail is "botevi@bu.omega.bg". If you have any comments, suggestions or anything else you want to tell me don't hesitate to drop me a line.
+
+DISCLAIMER:
+I take no responsibility for damages of any kind caused by this component!

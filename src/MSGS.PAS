@@ -66,6 +66,10 @@ Type
     Reason: String;
   End;
 
+  RServerTimeMessage = Record
+    Time: String;
+  End;
+
 Const 
   SERVER_ERROR = 0;
   SERVER_COLOR_LIST = 1;
@@ -76,6 +80,7 @@ Const
   SERVER_USER_LIST_UPDATE = 6;
   SERVER_MESSAGE_SENT = 7;
   SERVER_USER_KICKED = 8;
+  SERVER_TIME = 9;
   CLIENT_REGISTER_USER = 100;
   CLIENT_SEND_MESSAGE = 101;
   CLIENT_COLOR_LIST_REQUEST = 105;
@@ -97,6 +102,7 @@ Function ParseUserRemoveMessage(Content: PChar): RUserRemove;
 Function ParseServerUserRegistrationSuccessMessage(Content: PChar): RUser;
 Function ParseServerChatMessageSentMessage(Content: PChar): RServerChatMessage;
 Function ParseServerUserKickedMessage(Content: PChar): RServerUserKickedMessage;
+Function ParseServerTimeMessage(Content: PChar): RServerTimeMessage;
 Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String; Var MessageLength: Word): PChar;
 Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar;
 Function HtmlToDelphiColor(Const HtmlColor: String): TColor;
@@ -429,6 +435,25 @@ Begin
         Nickname := StrPas(Fields.Get(1));
         Color := StrPas(Fields.Get(2));
         RoomID := StrPas(Fields.Get(3));
+      End;
+  Finally
+    Fields.Free;  { Free the TPCharList }
+End;
+
+Result := ListItem;
+End;
+
+Function ParseServerTimeMessage(Content: PChar): RServerTimeMessage;
+Var 
+  Fields: TPCharList;
+  ListItem: RServerTimeMessage;
+Begin
+  Try
+    Fields := GetMessageAsList(Content, False);
+
+    With ListItem Do
+      Begin
+        Time := StrPas(Fields.Get(0));
       End;
   Finally
     Fields.Free;  { Free the TPCharList }

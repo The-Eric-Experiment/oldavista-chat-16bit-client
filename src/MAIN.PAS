@@ -6,7 +6,7 @@ Interface
 Uses 
 SysUtils, WinTypes, WinProcs, Messages, Classes, Graphics, Controls,
 Forms, Dialogs, StdCtrls, WSocket, ExtCtrls, ProtocolMessages, MMSystem,
-Readhtml, Htmlview, StrmBldr, Buttons, Menus, About, AppMeta;
+Readhtml, Htmlview, StrmBldr, Buttons, Menus, About, AppMeta, Splitter;
 
 Type 
   PUser = ^RUser;
@@ -17,15 +17,11 @@ Type
     MessagePanel: TPanel;
     EditMessage: TEdit;
     BtnSend: TButton;
-    Panel2: TPanel;
-    StatusPanel: TPanel;
-    Panel4: TPanel;
+    PnlStatusBar: TPanel;
     Separator: TPanel;
-    UsersList: TListBox;
     LblUserTo: TLabel;
     CkPrivately: TCheckBox;
     CmbSpeechMode: TComboBox;
-    MsgHtmlViewer: THTMLViewer;
     MenuMain: TMainMenu;
     MenuGroupChat: TMenuItem;
     MenuGroupHelp: TMenuItem;
@@ -36,6 +32,15 @@ Type
     MenuGroupMessages: TMenuItem;
     MenuItemAutoScroll: TMenuItem;
     MenuItemAbout: TMenuItem;
+    SrvTimeCounter: TTimer;
+    Splitter1: TSplitter;
+    MsgHtmlViewer: THTMLViewer;
+    UsersList: TListBox;
+    Bevel1: TBevel;
+    Panel1: TPanel;
+    Bevel2: TBevel;
+    LblConnection: TLabel;
+    LblServerTime: TLabel;
     Procedure BtnSendClick(Sender: TObject);
     Procedure CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
     Procedure CommSocketSessionConnected(Sender: TObject; ErrCode: Word);
@@ -53,6 +58,7 @@ Type
     Procedure ProcessMessage(MessageType: Word; MessageLength: Word; MessageContent: PChar);
     Procedure ProcessMessageSent(Msg: PChar);
     Procedure ProcessUserKicked(Msg: PChar);
+    Procedure ProcessServerTime(Msg: PChar);
     Procedure Login;
     Procedure FormDestroy(Sender: TObject);
     Procedure FormCreate(Sender: TObject);
@@ -85,6 +91,8 @@ Type
     Function GetUserIndexByID(UserID: String): Integer;
     Function GetRoomName(RoomID: String): String;
     Procedure SetRoomName(RoomName: String);
+    procedure SetStartTimeFromString(const TimeStr: String);
+    procedure SrvTimeCounterTimer(Sender: TObject);
     Private 
       RoomIds: TStringList;
       FReceiveBuffer: array [0..8191] Of char;
@@ -100,6 +108,7 @@ Type
       ReadyForNotifications: Boolean;
       IsKicked: Boolean;
       IsManualDisconnect: Boolean;
+      ServerTime: TDateTime;
     Public 
     { Public declarations }
   End;
@@ -158,7 +167,7 @@ End;
 
 Procedure TMainForm.SetStatus(Status: String);
 Begin
-  StatusPanel.Caption := Status;
+  LblConnection.Caption := Status;
 End;
 
 Procedure TMainForm.SetChatEnabled(Val: Boolean);
@@ -684,6 +693,16 @@ Begin
   MessageDlg(KickMessage.Reason, mtError, [mbOK], 0);
 End;
 
+Procedure TmainForm.ProcessServerTime(Msg: PChar);
+
+Var 
+  ServerTimeMessage: RServerTimeMessage;
+Begin
+  ServerTimeMessage := ParseServerTimeMessage(Msg);
+
+  SetStartTimeFromString(ServerTimeMessage.Time);
+End;
+
 Procedure TMainForm.ProcessMessage(MessageType: Word; MessageLength: Word; MessageContent: PChar);
 Begin
   { Handle the message based on its type }
@@ -703,9 +722,10 @@ Begin
          ProcessMessageSent(MessageContent)
   Else If MessageType = SERVER_USER_KICKED Then
          ProcessUserKicked(MessageContent)
-  Else
-    ShowMessage('Unknown Message');
+  Else If MessageType = SERVER_TIME Then
+         ProcessServerTime(MessageContent);
 End;
+
 
 Function TMainForm.SwapWord(Value: Word): Word;
 Begin
@@ -725,36 +745,43 @@ Begin
     Exit;
   End;
 
-  { Receive the data that has arrived, and append it to the existing buffer }
-  LReceivedLength := TWSocket(Sender).Receive(@FReceiveBuffer[FBufferedDataLength], SizeOf(FReceiveBuffer)
-                  - FBufferedDataLength - 1);
+  { Receive the data and append it to the existing buffer }
+  LReceivedLength := TWSocket(Sender).Receive(@FReceiveBuffer[FBufferedDataLength], 
+                    SizeOf(FReceiveBuffer) - FBufferedDataLength - 1);
+
   If LReceivedLength <= 0 Then Exit; { No data received }
 
-  { Update the buffer with the new data }
+  { Update buffer length }
   FBufferedDataLength := FBufferedDataLength + LReceivedLength;
 
   { Header size is 4 bytes: 2 bytes for message type, 2 bytes for message length }
   LHeaderSize := 4;
   LBufferIndex := 0;
 
-  While LBufferIndex < FBufferedDataLength Do
+  While LBufferIndex + LHeaderSize <= FBufferedDataLength Do
   Begin
-    { Check if we have enough data for the header (4 bytes: type + length) }
-    If (FBufferedDataLength - LBufferIndex) < LHeaderSize Then Break;  { Wait for more data if incomplete }
-
     { Read the message type (2 bytes) }
     Move(FReceiveBuffer[LBufferIndex], LMessageType, 2);
-    LMessageType := SwapWord(LMessageType); { Convert from network byte order (big endian) to host byte order }
+    LMessageType := SwapWord(LMessageType); { Convert from network byte order }
 
     { Read the message length (2 bytes) }
     Move(FReceiveBuffer[LBufferIndex + 2], LMessageLength, 2);
-    LMessageLength := SwapWord(LMessageLength); { Convert from network byte order (big endian) to host byte order }
+    LMessageLength := SwapWord(LMessageLength);
 
-    { Check if we have enough data for the full message (header + content) }
-    If (FBufferedDataLength - LBufferIndex - LHeaderSize) < LMessageLength Then Break;  { Wait for more data }
+    { Validate message length }
+    If (LMessageLength = 0) Or (LMessageLength > (SizeOf(FReceiveBuffer) - LHeaderSize)) Then
+    Begin
+      { Invalid length, discard buffer }
+      FBufferedDataLength := 0;
+      Exit;
+    End;
 
-    { Allocate memory for the message content based on its length, plus one for null terminator safety }
-    GetMem(LMessageContent, LMessageLength + 1); 
+    { Check if the full message is available }
+    If (LBufferIndex + LHeaderSize + LMessageLength) > FBufferedDataLength Then Break; 
+
+    { Allocate memory for the message content, with a null terminator for safety }
+    GetMem(LMessageContent, LMessageLength + 1);
+    If LMessageContent = Nil Then Exit; { Memory allocation failed }
 
     { Clear the allocated memory to avoid any garbage characters or extra bytes }
     FillChar(LMessageContent^, LMessageLength + 1, 0);
@@ -769,7 +796,7 @@ Begin
     FreeMem(LMessageContent, LMessageLength + 1);
 
     { Move the buffer index to the next message }
-    LBufferIndex := LBufferIndex + LHeaderSize + LMessageLength;
+    Inc(LBufferIndex, LHeaderSize + LMessageLength);
   End;
 
   { Move any leftover data (incomplete message) to the beginning of the buffer }
@@ -780,10 +807,9 @@ Begin
   End
   Else
   Begin
-    FBufferedDataLength := 0;  { No leftover data, reset the buffer }
+    FBufferedDataLength := 0; { Reset buffer when all data is processed }
   End;
 End;
-
 
 Procedure TMainForm.Login;
 Var
@@ -1102,5 +1128,41 @@ Begin
   DisconnectFromServer;
   Close;
 End;
+
+procedure TMainForm.SetStartTimeFromString(const TimeStr: String);
+var
+  Hour, Min, Sec: Integer;
+  AmPm: String;
+begin
+  SrvTimeCounter.Enabled := False;
+  { Extract hour, minute, second }
+  Hour := StrToInt(Copy(TimeStr, 1, 2));
+  Min  := StrToInt(Copy(TimeStr, 4, 2));
+  Sec  := StrToInt(Copy(TimeStr, 7, 2));
+  AmPm := Copy(TimeStr, 10, 2); { Extract AM/PM part }
+
+  { Convert 12-hour format to 24-hour format }
+  if (AmPm = 'PM') and (Hour < 12) then
+    Hour := Hour + 12
+  else if (AmPm = 'AM') and (Hour = 12) then
+    Hour := 0; { Convert 12 AM to 00 }
+
+  { Encode the time }
+  ServerTime := EncodeTime(Hour, Min, Sec, 0);
+
+  { Display the time in AM/PM format }
+  LblServerTime.Caption := 'Server Time: ' + FormatDateTime('hh:nn:ss AM/PM', ServerTime);
+
+  SrvTimeCounter.Enabled := True;
+end;
+
+procedure TMainForm.SrvTimeCounterTimer(Sender: TObject);
+begin
+  { Increment time by 1 second }
+  ServerTime := ServerTime + (1 / 86400);
+
+  { Display the time in AM/PM format }
+  LblServerTime.Caption := 'Server Time: ' + FormatDateTime('hh:nn:ss AM/PM', ServerTime);
+end;
 
 End.

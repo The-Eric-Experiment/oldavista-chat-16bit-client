@@ -1,0 +1,29 @@
+[DSP upload]
+Filename=Splitter.pas
+Replacements=
+Version=1.0
+FileURL=
+Description=A fully functional splitter component. With this component,  TExplorerButton (by Fabrice Deville) and TExtPanel (by me)  you can create an application with Internet Explorer 3  interface - sizing toolbar with text behing the cool iexplore buttons.
+Delphi 1.0=Y
+Delphi 2.0=Y
+Delphi 3.0=N
+C++Builder 1.0=N
+File Status=Freeware
+Full Source=Included
+Category=Visible Components
+Note=
+Additional info=
+
+[DSP Support]
+DSP Support=Y
+
+[Versions available]
+Delphi 1.0=
+Delphi 2.0=
+Delphi 3.0=
+C++Builder 1.0=
+
+[Uploader]
+Author name=Nikolai Botev
+Author E-mail=botevi@bu.omega.bg
+Author URL=

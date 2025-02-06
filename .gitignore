@@ -71,3 +71,5 @@ __recovery/
 modules/
 
 src/installer/OLD'AV~1
+
+!vcl/**/*.dcu
