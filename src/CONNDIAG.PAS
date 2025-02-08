@@ -51,26 +51,64 @@ var
   ARect: TRect;
   Text: array[0..255] of Char;
   Safer: TColor;
+  BrushHandle: HBRUSH;
+  DC: HDC;
+  LogPalette: PLogPalette;
+  Palette: HPALETTE;
+  OldPalette: HPALETTE;
+  ColorRef: TColorRef;
 begin
   ARect := Rect;
   Inc(ARect.Top, 2);
   Inc(ARect.Left, 2);
   Dec(ARect.Bottom, 2);
-  if FDisplayNames then ARect.Right := ARect.Left + ColorWidth
-  else Dec(ARect.Right, 3);
+  if FDisplayNames then
+    ARect.Right := ARect.Left + ColorWidth
+  else
+    Dec(ARect.Right, 3);
+
   with (Control as TComboBox).Canvas do
   begin
     FillRect(Rect);
     Safer := Brush.Color;
     Pen.Color := clWindowText;
     Rectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom);
-    Brush.Color := HtmlToDelphiColor(NicknameColors[Index]);
+
+    { Convert color }
+    ColorRef := ColorToRGB(HtmlToDelphiColor(NicknameColors[Index]));
+
+    { Allocate memory for a logical palette (1 color entry) }
+    GetMem(LogPalette, SizeOf(TLogPalette) + SizeOf(TPaletteEntry));
     try
-      InflateRect(ARect, -1, -1);
-      FillRect(ARect);
+      LogPalette^.palVersion := $300;
+      LogPalette^.palNumEntries := 1;
+      LogPalette^.palPalEntry[0].peRed := GetRValue(ColorRef);
+      LogPalette^.palPalEntry[0].peGreen := GetGValue(ColorRef);
+      LogPalette^.palPalEntry[0].peBlue := GetBValue(ColorRef);
+      LogPalette^.palPalEntry[0].peFlags := PC_NOCOLLAPSE;
+
+      { Create and select the logical palette }
+      Palette := CreatePalette(LogPalette^);
+      DC := Handle;
+      OldPalette := SelectPalette(DC, Palette, False);
+      RealizePalette(DC);
+
+      { Fill the rectangle using a solid brush with the mapped palette color }
+      BrushHandle := CreateSolidBrush(PALETTEINDEX(0));
+      try
+        InflateRect(ARect, -1, -1);
+        WinProcs.FillRect(DC, ARect, BrushHandle);
+      finally
+        DeleteObject(BrushHandle);
+      end;
+
+      { Restore previous palette }
+      SelectPalette(DC, OldPalette, False);
+      DeleteObject(Palette);
     finally
-      Brush.Color := Safer;
+      FreeMem(LogPalette, SizeOf(TLogPalette) + SizeOf(TPaletteEntry));
     end;
+
     if FDisplayNames then
     begin
       StrPCopy(Text, (Control as TComboBox).Items[Index]);
