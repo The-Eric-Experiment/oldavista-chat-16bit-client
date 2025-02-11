@@ -16,6 +16,8 @@ type
     Comments: TLabel;
     Label1: TLabel;
     AboutHeaderImage: TImage;
+    Label2: TLabel;
+    Label3: TLabel;
     procedure FormActivate(Sender: TObject);
   private
     { Private declarations }

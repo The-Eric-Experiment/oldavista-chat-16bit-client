@@ -2,7 +2,7 @@
 
 # Paths
 FOLDER_PATH="/home/ericmackrodt/Development/oldavista-chat-16bit-client"
-IMG_PATH="/home/ericmackrodt/Documents/src.img"
+IMG_PATH="/home/ericmackrodt/Documents/olda.img"
 MOUNT_POINT="/mnt/zip"
 TEMP_MOUNT_POINT="${MOUNT_POINT}_temp"
 
