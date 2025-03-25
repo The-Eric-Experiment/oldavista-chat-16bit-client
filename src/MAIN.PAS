@@ -171,7 +171,6 @@ Begin
 End;
 
 Procedure TMainForm.SetChatEnabled(Val: Boolean);
-
 Var 
   I: Integer;
 Begin
@@ -198,12 +197,21 @@ Begin
 
       MsgHtmlViewer.Clear;
 
-      If ChatUsers <> Nil Then
-        For I := 0 To ChatUsers.Count - 1 Do
-          Begin
-            Dispose(PUser(ChatUsers[I]));
-            UsersList.Items.Delete(I);
-          End;
+      { Properly clear the user list and free memory }
+      If Assigned(ChatUsers) And (ChatUsers <> Nil) Then
+        Begin
+          { First dispose all user objects }
+          For I := 0 To ChatUsers.Count - 1 Do
+            Begin
+              If ChatUsers[I] <> Nil Then
+                Dispose(PUser(ChatUsers[I]));
+            End;
+          { Then clear the list }
+          ChatUsers.Clear;
+        End;
+        
+      { Clear the visual list separately }
+      UsersList.Items.Clear;
 
       LblUserTo.Caption := 'Everyone';
       LblUserTo.Font.Color := HtmlToDelphiColor('#000000');
@@ -620,7 +628,6 @@ Begin
 End;
 
 Procedure TMainForm.ProcessUserListAdd(Msg: PChar);
-
 Var 
   UserItem: PUser;
   ListNickname: String;
@@ -636,8 +643,17 @@ Begin
   If (Assigned(CurrentUser)) And (CurrentUser^.UserID = UserItem^.UserID) Then
     ListNickname := UserItem^.Nickname + ' (Me)';
 
-  ChatUsers.Add(UserItem);
-  UsersList.Items.Add(ListNickname);
+  { Check for duplicates - Optional but helps prevent issues }
+  If GetUserIndexByID(UserItem^.UserID) < 0 Then
+  Begin
+    ChatUsers.Add(UserItem);
+    UsersList.Items.Add(ListNickname);
+  End
+  Else
+  Begin
+    { Handle duplicate - could log, update existing, or free and ignore }
+    Dispose(UserItem); { Free memory if we don't add it }
+  End;
 End;
 
 Procedure TMainForm.ProcessUserListRemove(Msg: PChar);
@@ -1023,7 +1039,6 @@ End;
 
 
 Procedure TMainForm.FormDestroy(Sender: TObject);
-
 Var 
   I: Integer;
 Begin
@@ -1032,22 +1047,23 @@ Begin
       CommSocket.Close;
     Except
       on E: Exception Do
-            ShowMessage('Error closing socket: ' + E.Message);
-End;
-
-If (Assigned(ChatUsers)) And (ChatUsers <> Nil) Then
-  For I := 0 To ChatUsers.Count - 1 Do
-    Begin
-      If (ChatUsers[I] <> Nil) Then
-        Dispose(PUser(ChatUsers[I]));
+        ShowMessage('Error closing socket: ' + E.Message);
     End;
 
-ChatUsers.Free;
-ChatUsers := Nil;
-RoomIds.Free;
-RoomIds := Nil;
-
-FinalizeStream;
+  { Properly clean up user objects }
+  If Assigned(ChatUsers) And (ChatUsers <> Nil) Then
+    Begin
+      For I := 0 To ChatUsers.Count - 1 Do
+        Begin
+          If (ChatUsers[I] <> Nil) Then
+            Dispose(PUser(ChatUsers[I]));
+        End;
+      ChatUsers.Free;
+    End;
+  
+  { Free other resources }
+  RoomIds.Free;
+  FinalizeStream;
 End;
 
 Procedure TMainForm.FormCreate(Sender: TObject);
