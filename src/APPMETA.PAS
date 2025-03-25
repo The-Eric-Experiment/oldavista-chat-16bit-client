@@ -3,6 +3,7 @@ unit AppMeta;
 interface
 
 const AppVersion = '1.0';
+const AppPlat = 'Desktop';
 const AppOS = 'Windows';
 const AppEnvironment = '16-bit';
 const AppName = 'Old''aVista Chat!';

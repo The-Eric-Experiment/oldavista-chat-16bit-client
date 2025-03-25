@@ -60,6 +60,8 @@ Type
     SystemMessageSubject: PUser;
     IsHistory: Boolean;
     Message: String;
+    Source: String;
+    ShowClientIcon: Boolean;
   End;
 
   RServerUserKickedMessage = Record
@@ -603,6 +605,13 @@ Begin
           IsHistory := False;
 
         Message := StrPas(Fields.Get(9));
+
+        Source := StrPas(Fields.Get(10));
+
+        If StrPas(Fields.Get(11)) = 'true' Then
+          ShowClientIcon := True
+        Else
+          ShowClientIcon := False;
       End;
   Finally
     Fields.Free;  { Free the TPCharList }
@@ -640,8 +649,9 @@ Var
   MessageContent: String;
 Begin
   { Create the message content (now with spaces between parts) }
-  MessageContent := Quotation(Nickname) + ' ' + Color + ' ' + RoomId + ' "os:(' + AppOS + 
-    ') env:(' + AppEnvironment + ') v:(' + AppVersion + ')"';
+  MessageContent := Quotation(Nickname) + ' ' + Color + ' ' +
+                 RoomId + ' "plat:(' + AppPlat + ') os:(' + AppOS +
+                 ') env:(' + AppEnvironment + ') v:(' + AppVersion + ')"';
 
   { Use the helper to build the full message with the header }
   Result := BuildMessageWithHeader(CLIENT_REGISTER_USER, MessageContent, MessageLength);
