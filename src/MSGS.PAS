@@ -93,8 +93,10 @@ Function GetMessageType(Value: PChar): String;
 Function GetMessageAsList(Value: PChar; FullMessage: Boolean): TPCharList;
 Function GetListField(Value: PChar): TStringList;
 Function Quotation(Input: String): String;
-Function BuildMessageWithHeader(MessageType: Word; MessageContent: String; Var MessageLength: Word): PChar;
-Function BuildMessageWithHeaderNoPayload(MessageType: Word; Var MessageLength: Word): PChar;
+Function BuildMessageWithHeader(MessageType: Word; MessageContent: String; Var
+                                MessageLength: Word): PChar;
+Function BuildMessageWithHeaderNoPayload(MessageType: Word; Var MessageLength:
+                                         Word): PChar;
 Function ParseServerError(Content: PChar): RServerError;
 Function ParseColorListMessage(Content: PChar): RColorList;
 Function ParseRoomListMessage(Content: PChar): RRoomList;
@@ -105,8 +107,10 @@ Function ParseServerUserRegistrationSuccessMessage(Content: PChar): RUser;
 Function ParseServerChatMessageSentMessage(Content: PChar): RServerChatMessage;
 Function ParseServerUserKickedMessage(Content: PChar): RServerUserKickedMessage;
 Function ParseServerTimeMessage(Content: PChar): RServerTimeMessage;
-Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String; Var MessageLength: Word): PChar;
-Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar;
+Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color:
+                                   String; Var MessageLength: Word): PChar;
+Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar
+;
 Function HtmlToDelphiColor(Const HtmlColor: String): TColor;
 Function DelphiToHtmlColor(Color: TColor): string;
 Procedure FreeServerChatMessage(Var Message: RServerChatMessage);
@@ -188,7 +192,8 @@ Begin
   MessageContent := TPCharList.Create;
   IsWithinQuotes := False;
   IsWithinList := False;
-  {This exists because previously we could receive the full message
+
+{This exists because previously we could receive the full message
   with the the message type in the beginning, so we'd start accumulating
   after the first space, effectively skipping the message type, this is not
   needed anymore but I don't feel like changing it right now}
@@ -295,7 +300,8 @@ End;
 
 
 Function GetListField(Value: PChar): TStringList;
-Var
+
+Var 
   i: Integer;
   MessageContent: TStringList;
   c: Char;
@@ -307,34 +313,34 @@ Begin
   Accumulator := '';
 
   i := 0;
-    If (Value[0] = '[') And (Value[1] = ']') Then
+  If (Value[0] = '[') And (Value[1] = ']') Then
     Begin
       i := 2;  { Start parsing after the brackets }
 
       While Value[i] <> #0 Do
-      Begin
-        c := Value[i];
-
-        If ((c = ',') And Not IsWithinQuotes) Then
         Begin
-          If Accumulator <> '' Then
-          Begin
-            MessageContent.Add(Accumulator);
-            Accumulator := '';
-          End;
-        End
-        Else If c = '"' Then
-          IsWithinQuotes := Not IsWithinQuotes
-        Else
-          Accumulator := Accumulator + c;
+          c := Value[i];
 
-        Inc(i);
-      End;
+          If ((c = ',') And Not IsWithinQuotes) Then
+            Begin
+              If Accumulator <> '' Then
+                Begin
+                  MessageContent.Add(Accumulator);
+                  Accumulator := '';
+                End;
+            End
+          Else If c = '"' Then
+                 IsWithinQuotes := Not IsWithinQuotes
+          Else
+            Accumulator := Accumulator + c;
+
+          Inc(i);
+        End;
 
       { Add the last accumulated string if any }
       If Accumulator <> '' Then
         MessageContent.Add(Accumulator);
-  End;
+    End;
 
   Result := MessageContent;
 End;
@@ -446,6 +452,7 @@ Result := ListItem;
 End;
 
 Function ParseServerTimeMessage(Content: PChar): RServerTimeMessage;
+
 Var 
   Fields: TPCharList;
   ListItem: RServerTimeMessage;
@@ -620,11 +627,14 @@ End;
 Result := Message;
 End;
 
-Function BuildMessageWithHeader(MessageType: Word; MessageContent: String; Var MessageLength: Word): PChar;
-Var
+Function BuildMessageWithHeader(MessageType: Word; MessageContent: String; Var
+                                MessageLength: Word): PChar;
+
+Var 
   Buffer: PChar;
 Begin
-  { Calculate the length of the message content, including the header (4 bytes) }
+
+ { Calculate the length of the message content, including the header (4 bytes) }
   MessageLength := 4 + Length(MessageContent);
 
   { Allocate memory for the header (4 bytes) and the message content }
@@ -633,32 +643,39 @@ Begin
   { Set the header (big-endian order) }
   Buffer[0] := Chr(Hi(MessageType));   { First byte of MessageType }
   Buffer[1] := Chr(Lo(MessageType));   { Second byte of MessageType }
-  Buffer[2] := Chr(Hi(Length(MessageContent))); { First byte of MessageLength (content only) }
+  Buffer[2] := Chr(Hi(Length(MessageContent)));
+  { First byte of MessageLength (content only) }
   Buffer[3] := Chr(Lo(Length(MessageContent))); { Second byte of MessageLength }
 
   { Copy the message content directly into the buffer }
   If Length(MessageContent) > 0 Then
-    Move(MessageContent[1], Buffer[4], Length(MessageContent));  { Copy string content starting at Buffer[4] }
+    Move(MessageContent[1], Buffer[4], Length(MessageContent));
+  { Copy string content starting at Buffer[4] }
 
   { Return the constructed buffer }
   Result := Buffer;
 End;
 
-Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color: String; Var MessageLength: Word): PChar;
-Var
+Function CreateRegisterUserMessage(RoomId: String; Nickname: String; Color:
+                                   String; Var MessageLength: Word): PChar;
+
+Var 
   MessageContent: String;
 Begin
   { Create the message content (now with spaces between parts) }
   MessageContent := Quotation(Nickname) + ' ' + Color + ' ' +
-                 RoomId + ' "plat:(' + AppPlat + ') os:(' + AppOS +
-                 ') env:(' + AppEnvironment + ') v:(' + AppVersion + ')"';
+                    RoomId + ' "plat:(' + AppPlat + ') os:(' + AppOS +
+                    ') env:(' + AppEnvironment + ') v:(' + AppVersion + ')"';
 
   { Use the helper to build the full message with the header }
-  Result := BuildMessageWithHeader(CLIENT_REGISTER_USER, MessageContent, MessageLength);
+  Result := BuildMessageWithHeader(CLIENT_REGISTER_USER, MessageContent,
+            MessageLength);
 End;
 
-Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar;
-Var
+Function CreateSendMessageMessage(Msg: RMessage; Var MessageLength: Word): PChar
+;
+
+Var 
   MessageContent, StrPrivately: String;
 Begin
   With Msg Do
@@ -669,15 +686,18 @@ Begin
         StrPrivately := 'false';
 
       { Create the message content }
-      MessageContent := UserID + ' ' + Quotation(UserTo) + ' ' + SpeechMode + ' ' +
+      MessageContent := UserID + ' ' + Quotation(UserTo) + ' ' + SpeechMode +
+                        ' ' +
                         Quotation(Message) + ' ' + StrPrivately + ' ' + RoomID;
 
       { Use the helper to build the full message with the header }
-      Result := BuildMessageWithHeader(CLIENT_SEND_MESSAGE, MessageContent, MessageLength);
+      Result := BuildMessageWithHeader(CLIENT_SEND_MESSAGE, MessageContent,
+                MessageLength);
     End;
 End;
 
-Function BuildMessageWithHeaderNoPayload(MessageType: Word; Var MessageLength: Word): PChar;
+Function BuildMessageWithHeaderNoPayload(MessageType: Word; Var MessageLength:
+                                         Word): PChar;
 Begin
   { Call BuildMessageWithHeader with an empty string }
   Result := BuildMessageWithHeader(MessageType, '', MessageLength);

@@ -1,15 +1,22 @@
-unit AppMeta;
 
-interface
+Unit AppMeta;
 
-const AppVersion = '1.0';
-const AppPlat = 'Desktop';
-const AppOS = 'Windows';
-const AppEnvironment = '16-bit';
-const AppName = 'Old''aVista Chat!';
-const ServerURL = '192.168.1.60';
-const ServerPort = '8081';
+Interface
 
-implementation
+Const AppVersion = '1.0';
 
-end.
+Const AppPlat = 'Desktop';
+
+Const AppOS = 'Windows';
+
+Const AppEnvironment = '16-bit';
+
+Const AppName = 'Old''aVista Chat!';
+
+Const ServerURL = '192.168.1.60';
+
+Const ServerPort = '8081';
+
+Implementation
+
+End.

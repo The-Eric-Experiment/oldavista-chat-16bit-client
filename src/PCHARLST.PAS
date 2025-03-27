@@ -1,60 +1,63 @@
-unit PCharLst;
 
-interface
+Unit PCharLst;
 
-uses
-  SysUtils, Classes;
+Interface
 
-const
+Uses 
+SysUtils, Classes;
+
+Const 
   MaxPCharListSize = 1024; { Adjust this value as needed }
 
-type
-  TPCharList = class
-  private
-    FItems: array[0..MaxPCharListSize - 1] of PChar;
-    FCount: Integer;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure Add(Item: PChar);
-    function Get(Index: Integer): PChar;
-    property Count: Integer read FCount;
-  end;
+Type 
+  TPCharList = Class
+    Private 
+      FItems: array[0..MaxPCharListSize - 1] Of PChar;
+      FCount: Integer;
+    Public 
+      constructor Create;
+      destructor Destroy;
+      override;
+      Procedure Add(Item: PChar);
+      Function Get(Index: Integer): PChar;
+      property Count: Integer read FCount;
+  End;
 
-implementation
+Implementation
 
 constructor TPCharList.Create;
-begin
+Begin
   inherited Create;
   FCount := 0;
-end;
+End;
 
 destructor TPCharList.Destroy;
-var
+
+Var 
   i: Integer;
-begin
-  for i := 0 to FCount - 1 do
+Begin
+  For i := 0 To FCount - 1 Do
     StrDispose(FItems[i]);
   inherited Destroy;
-end;
+End;
 
-procedure TPCharList.Add(Item: PChar);
-begin
-  if FCount < MaxPCharListSize then
-  begin
-    FItems[FCount] := StrNew(Item); { Allocate memory and store the PChar }
-    Inc(FCount);
-  end
-  else
+Procedure TPCharList.Add(Item: PChar);
+Begin
+  If FCount < MaxPCharListSize Then
+    Begin
+      FItems[FCount] := StrNew(Item); { Allocate memory and store the PChar }
+      Inc(FCount);
+    End
+  Else
     raise Exception.Create('TPCharList is full');
-end;
+End;
 
-function TPCharList.Get(Index: Integer): PChar;
-begin
-  if (Index >= 0) and (Index < FCount) then
+Function TPCharList.Get(Index: Integer): PChar;
+Begin
+  If (Index >= 0) And (Index < FCount) Then
     Result := FItems[Index]
-  else
-    Result := nil;
-end;
+  Else
+    Result := Nil;
+End;
 
-end.
+End.

@@ -55,7 +55,8 @@ Type
     Procedure ProcessUserRegistrationSuccess(Msg: PChar);
     Procedure ProcessUserListAdd(Msg: PChar);
     Procedure ProcessUserListRemove(Msg: PChar);
-    Procedure ProcessMessage(MessageType: Word; MessageLength: Word; MessageContent: PChar);
+    Procedure ProcessMessage(MessageType: Word; MessageLength: Word;
+                             MessageContent: PChar);
     Procedure ProcessMessageSent(Msg: PChar);
     Procedure ProcessUserKicked(Msg: PChar);
     Procedure ProcessServerTime(Msg: PChar);
@@ -91,8 +92,8 @@ Type
     Function GetUserIndexByID(UserID: String): Integer;
     Function GetRoomName(RoomID: String): String;
     Procedure SetRoomName(RoomName: String);
-    procedure SetStartTimeFromString(const TimeStr: String);
-    procedure SrvTimeCounterTimer(Sender: TObject);
+    Procedure SetStartTimeFromString(Const TimeStr: String);
+    Procedure SrvTimeCounterTimer(Sender: TObject);
     Private 
       RoomIds: TStringList;
       FReceiveBuffer: array [0..8191] Of char;
@@ -171,13 +172,14 @@ Begin
 End;
 
 Procedure TMainForm.SetChatEnabled(Val: Boolean);
+
 Var 
   I: Integer;
 Begin
   UsersList.Enabled := Val;
   EditMessage.Enabled := Val;
   BtnSend.Enabled := Val;
-  MsgHtmlViewer.Enabled := Val;                                                               
+  MsgHtmlViewer.Enabled := Val;
   CkPrivately.Enabled := Val;
   CmbSpeechMode.Enabled := Val;
   LblUserTo.Enabled := Val;
@@ -209,7 +211,7 @@ Begin
           { Then clear the list }
           ChatUsers.Clear;
         End;
-        
+
       { Clear the visual list separately }
       UsersList.Items.Clear;
 
@@ -436,6 +438,7 @@ End;
 
 
 Procedure TMainForm.SendMessage(Sender: TObject);
+
 Var 
   Msg: PChar;       { The message to send, now PChar }
   MessageRec: RMessage;
@@ -519,6 +522,7 @@ Begin
 End;
 
 Procedure TMainForm.OpenLoginModal;
+
 Var 
   Result: TModalResult;
   Msg: PChar;
@@ -537,12 +541,14 @@ Begin
       { Set the current room based on the user's selection }
       CurrentRoom := RoomIds[ConnectionDialog.RoomSelector.ItemIndex];
 
-      { Create the register user message and receive the message length as output }
+
+   { Create the register user message and receive the message length as output }
       Msg := CreateRegisterUserMessage(
-               CurrentRoom,
-               ConnectionDialog.NicknameEdit.Text,
-               ConnectionDialog.NicknameColors[ConnectionDialog.ColorSelector.ItemIndex],
-               MsgLength);  { MessageLength is now returned here }
+             CurrentRoom,
+             ConnectionDialog.NicknameEdit.Text,
+             ConnectionDialog.NicknameColors[ConnectionDialog.ColorSelector.
+             ItemIndex],
+             MsgLength);  { MessageLength is now returned here }
 
       { Send the message through the socket }
       CommSocket.Send(Msg, MsgLength);
@@ -628,6 +634,7 @@ Begin
 End;
 
 Procedure TMainForm.ProcessUserListAdd(Msg: PChar);
+
 Var 
   UserItem: PUser;
   ListNickname: String;
@@ -645,15 +652,15 @@ Begin
 
   { Check for duplicates - Optional but helps prevent issues }
   If GetUserIndexByID(UserItem^.UserID) < 0 Then
-  Begin
-    ChatUsers.Add(UserItem);
-    UsersList.Items.Add(ListNickname);
-  End
+    Begin
+      ChatUsers.Add(UserItem);
+      UsersList.Items.Add(ListNickname);
+    End
   Else
-  Begin
+    Begin
     { Handle duplicate - could log, update existing, or free and ignore }
-    Dispose(UserItem); { Free memory if we don't add it }
-  End;
+      Dispose(UserItem); { Free memory if we don't add it }
+    End;
 End;
 
 Procedure TMainForm.ProcessUserListRemove(Msg: PChar);
@@ -719,7 +726,8 @@ Begin
   SetStartTimeFromString(ServerTimeMessage.Time);
 End;
 
-Procedure TMainForm.ProcessMessage(MessageType: Word; MessageLength: Word; MessageContent: PChar);
+Procedure TMainForm.ProcessMessage(MessageType: Word; MessageLength: Word;
+                                   MessageContent: PChar);
 Begin
   { Handle the message based on its type }
   If MessageType = SERVER_ERROR Then
@@ -749,106 +757,122 @@ Begin
 End;
 
 Procedure TMainForm.CommSocketDataAvailable(Sender: TObject; ErrCode: Word);
-Var
+
+Var 
   LReceivedLength, LBufferIndex: Integer;
   LMessageType, LMessageLength: Word;
   LHeaderSize: Integer;
   LMessageContent: PChar;
 Begin
   If CommSocket.State = wsClosed Then
-  Begin
-    CommSocketSessionClosed(Sender, ErrCode);
-    Exit;
-  End;
+    Begin
+      CommSocketSessionClosed(Sender, ErrCode);
+      Exit;
+    End;
 
   { Receive the data and append it to the existing buffer }
-  LReceivedLength := TWSocket(Sender).Receive(@FReceiveBuffer[FBufferedDataLength], 
-                    SizeOf(FReceiveBuffer) - FBufferedDataLength - 1);
+  LReceivedLength := TWSocket(Sender).Receive(@FReceiveBuffer[
+                     FBufferedDataLength],
+                     SizeOf(FReceiveBuffer) - FBufferedDataLength - 1);
 
   If LReceivedLength <= 0 Then Exit; { No data received }
 
   { Update buffer length }
   FBufferedDataLength := FBufferedDataLength + LReceivedLength;
 
-  { Header size is 4 bytes: 2 bytes for message type, 2 bytes for message length }
+
+{ Header size is 4 bytes: 2 bytes for message type, 2 bytes for message length }
   LHeaderSize := 4;
   LBufferIndex := 0;
 
   While LBufferIndex + LHeaderSize <= FBufferedDataLength Do
-  Begin
+    Begin
     { Read the message type (2 bytes) }
-    Move(FReceiveBuffer[LBufferIndex], LMessageType, 2);
-    LMessageType := SwapWord(LMessageType); { Convert from network byte order }
+      Move(FReceiveBuffer[LBufferIndex], LMessageType, 2);
+      LMessageType := SwapWord(LMessageType);
+      { Convert from network byte order }
 
     { Read the message length (2 bytes) }
-    Move(FReceiveBuffer[LBufferIndex + 2], LMessageLength, 2);
-    LMessageLength := SwapWord(LMessageLength);
+      Move(FReceiveBuffer[LBufferIndex + 2], LMessageLength, 2);
+      LMessageLength := SwapWord(LMessageLength);
 
     { Validate message length }
-    If (LMessageLength = 0) Or (LMessageLength > (SizeOf(FReceiveBuffer) - LHeaderSize)) Then
-    Begin
+      If (LMessageLength = 0) Or (LMessageLength > (SizeOf(FReceiveBuffer) -
+         LHeaderSize)) Then
+        Begin
       { Invalid length, discard buffer }
-      FBufferedDataLength := 0;
-      Exit;
-    End;
+          FBufferedDataLength := 0;
+          Exit;
+        End;
 
     { Check if the full message is available }
-    If (LBufferIndex + LHeaderSize + LMessageLength) > FBufferedDataLength Then Break; 
+      If (LBufferIndex + LHeaderSize + LMessageLength) > FBufferedDataLength
+        Then Break;
 
-    { Allocate memory for the message content, with a null terminator for safety }
-    GetMem(LMessageContent, LMessageLength + 1);
-    If LMessageContent = Nil Then Exit; { Memory allocation failed }
 
-    { Clear the allocated memory to avoid any garbage characters or extra bytes }
-    FillChar(LMessageContent^, LMessageLength + 1, 0);
+  { Allocate memory for the message content, with a null terminator for safety }
+      GetMem(LMessageContent, LMessageLength + 1);
+      If LMessageContent = Nil Then Exit; { Memory allocation failed }
+
+
+   { Clear the allocated memory to avoid any garbage characters or extra bytes }
+      FillChar(LMessageContent^, LMessageLength + 1, 0);
 
     { Copy exactly LMessageLength bytes from the buffer to LMessageContent }
-    Move(FReceiveBuffer[LBufferIndex + LHeaderSize], LMessageContent^, LMessageLength);
+      Move(FReceiveBuffer[LBufferIndex + LHeaderSize], LMessageContent^,
+           LMessageLength);
 
     { Pass the message to ProcessMessage (content passed as-is) }
-    Self.ProcessMessage(LMessageType, LMessageLength, LMessageContent);
+      Self.ProcessMessage(LMessageType, LMessageLength, LMessageContent);
 
     { Free the allocated memory for the message content }
-    FreeMem(LMessageContent, LMessageLength + 1);
+      FreeMem(LMessageContent, LMessageLength + 1);
 
     { Move the buffer index to the next message }
-    Inc(LBufferIndex, LHeaderSize + LMessageLength);
-  End;
+      Inc(LBufferIndex, LHeaderSize + LMessageLength);
+    End;
 
   { Move any leftover data (incomplete message) to the beginning of the buffer }
   If LBufferIndex < FBufferedDataLength Then
-  Begin
-    Move(FReceiveBuffer[LBufferIndex], FReceiveBuffer[0], FBufferedDataLength - LBufferIndex);
-    FBufferedDataLength := FBufferedDataLength - LBufferIndex;
-  End
+    Begin
+      Move(FReceiveBuffer[LBufferIndex], FReceiveBuffer[0], FBufferedDataLength
+           - LBufferIndex);
+      FBufferedDataLength := FBufferedDataLength - LBufferIndex;
+    End
   Else
-  Begin
-    FBufferedDataLength := 0; { Reset buffer when all data is processed }
-  End;
+    Begin
+      FBufferedDataLength := 0; { Reset buffer when all data is processed }
+    End;
 End;
 
 Procedure TMainForm.Login;
-Var
+
+Var 
   Msg: PChar;
   MsgLength: Word;
 Begin
   OpenLoginModal;
 
   If (Not Assigned(RoomIds)) Or (RoomIds.Count <= 0) Then
-  Begin
+    Begin
     { Send the message with no payload (4-byte header only) }
-    Msg := BuildMessageWithHeaderNoPayload(CLIENT_ROOM_LIST_REQUEST, MsgLength);
-    CommSocket.Send(Msg, MsgLength);  { Send the message with the correct length }
-    FreeMem(Msg, MsgLength);  { Free the allocated memory }
-  End;
+      Msg := BuildMessageWithHeaderNoPayload(CLIENT_ROOM_LIST_REQUEST, MsgLength
+             );
+      CommSocket.Send(Msg, MsgLength);
+      { Send the message with the correct length }
+      FreeMem(Msg, MsgLength);  { Free the allocated memory }
+    End;
 
-  If (Not Assigned(ConnectionDialog.NicknameColors)) Or (ConnectionDialog.NicknameColors.Count <= 0) Then
-  Begin
+  If (Not Assigned(ConnectionDialog.NicknameColors)) Or (ConnectionDialog.
+     NicknameColors.Count <= 0) Then
+    Begin
     { Send the message with no payload (4-byte header only) }
-    Msg := BuildMessageWithHeaderNoPayload(CLIENT_COLOR_LIST_REQUEST, MsgLength);
-    CommSocket.Send(Msg, MsgLength);  { Send the message with the correct length }
-    FreeMem(Msg, MsgLength);  { Free the allocated memory }
-  End;
+      Msg := BuildMessageWithHeaderNoPayload(CLIENT_COLOR_LIST_REQUEST,
+             MsgLength);
+      CommSocket.Send(Msg, MsgLength);
+      { Send the message with the correct length }
+      FreeMem(Msg, MsgLength);  { Free the allocated memory }
+    End;
 End;
 
 
@@ -1039,6 +1063,7 @@ End;
 
 
 Procedure TMainForm.FormDestroy(Sender: TObject);
+
 Var 
   I: Integer;
 Begin
@@ -1047,23 +1072,23 @@ Begin
       CommSocket.Close;
     Except
       on E: Exception Do
-        ShowMessage('Error closing socket: ' + E.Message);
-    End;
+            ShowMessage('Error closing socket: ' + E.Message);
+End;
 
   { Properly clean up user objects }
-  If Assigned(ChatUsers) And (ChatUsers <> Nil) Then
-    Begin
-      For I := 0 To ChatUsers.Count - 1 Do
-        Begin
-          If (ChatUsers[I] <> Nil) Then
-            Dispose(PUser(ChatUsers[I]));
-        End;
-      ChatUsers.Free;
-    End;
-  
+If Assigned(ChatUsers) And (ChatUsers <> Nil) Then
+  Begin
+    For I := 0 To ChatUsers.Count - 1 Do
+      Begin
+        If (ChatUsers[I] <> Nil) Then
+          Dispose(PUser(ChatUsers[I]));
+      End;
+    ChatUsers.Free;
+  End;
+
   { Free other resources }
-  RoomIds.Free;
-  FinalizeStream;
+RoomIds.Free;
+FinalizeStream;
 End;
 
 Procedure TMainForm.FormCreate(Sender: TObject);
@@ -1145,11 +1170,12 @@ Begin
   Close;
 End;
 
-procedure TMainForm.SetStartTimeFromString(const TimeStr: String);
-var
+Procedure TMainForm.SetStartTimeFromString(Const TimeStr: String);
+
+Var 
   Hour, Min, Sec: Integer;
   AmPm: String;
-begin
+Begin
   SrvTimeCounter.Enabled := False;
   { Extract hour, minute, second }
   Hour := StrToInt(Copy(TimeStr, 1, 2));
@@ -1158,27 +1184,29 @@ begin
   AmPm := Copy(TimeStr, 10, 2); { Extract AM/PM part }
 
   { Convert 12-hour format to 24-hour format }
-  if (AmPm = 'PM') and (Hour < 12) then
+  If (AmPm = 'PM') And (Hour < 12) Then
     Hour := Hour + 12
-  else if (AmPm = 'AM') and (Hour = 12) then
-    Hour := 0; { Convert 12 AM to 00 }
+  Else If (AmPm = 'AM') And (Hour = 12) Then
+         Hour := 0; { Convert 12 AM to 00 }
 
   { Encode the time }
   ServerTime := EncodeTime(Hour, Min, Sec, 0);
 
   { Display the time in AM/PM format }
-  LblServerTime.Caption := 'Server Time: ' + FormatDateTime('hh:nn:ss AM/PM', ServerTime);
+  LblServerTime.Caption := 'Server Time: ' + FormatDateTime('hh:nn:ss AM/PM',
+                           ServerTime);
 
   SrvTimeCounter.Enabled := True;
-end;
+End;
 
-procedure TMainForm.SrvTimeCounterTimer(Sender: TObject);
-begin
+Procedure TMainForm.SrvTimeCounterTimer(Sender: TObject);
+Begin
   { Increment time by 1 second }
   ServerTime := ServerTime + (1 / 86400);
 
   { Display the time in AM/PM format }
-  LblServerTime.Caption := 'Server Time: ' + FormatDateTime('hh:nn:ss AM/PM', ServerTime);
-end;
+  LblServerTime.Caption := 'Server Time: ' + FormatDateTime('hh:nn:ss AM/PM',
+                           ServerTime);
+End;
 
 End.

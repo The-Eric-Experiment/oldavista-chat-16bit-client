@@ -1,12 +1,13 @@
-unit About;
 
-interface
+Unit About;
 
-uses WinTypes, WinProcs, Classes, Graphics, Forms, Controls, StdCtrls,
-  Buttons, ExtCtrls, AppMeta;
+Interface
 
-type
-  TAboutBox = class(TForm)
+Uses WinTypes, WinProcs, Classes, Graphics, Forms, Controls, StdCtrls,
+Buttons, ExtCtrls, AppMeta;
+
+Type 
+  TAboutBox = Class(TForm)
     Panel1: TPanel;
     OKButton: TBitBtn;
     ProgramIcon: TImage;
@@ -18,25 +19,24 @@ type
     AboutHeaderImage: TImage;
     Label2: TLabel;
     Label3: TLabel;
-    procedure FormActivate(Sender: TObject);
-  private
+    Procedure FormActivate(Sender: TObject);
+    Private 
     { Private declarations }
-  public
+    Public 
     { Public declarations }
-  end;
+  End;
 
-var
+Var 
   AboutBox: TAboutBox;
 
-implementation
+Implementation
 
 {$R *.DFM}
 
-procedure TAboutBox.FormActivate(Sender: TObject);
-begin
+Procedure TAboutBox.FormActivate(Sender: TObject);
+Begin
   LblProductName.Caption := AppName;
   LblVersion.Caption := 'Version ' + AppVersion + ' (' + AppEnvironment + ')';
-end;
+End;
 
-end.
- 
+End.

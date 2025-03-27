@@ -1,60 +1,62 @@
-unit StrmBldr;
 
-interface
+Unit StrmBldr;
 
-uses
-  Classes;
+Interface
 
-type
-  TStringStreamBuilder = class
-  private
-    FMemoryStream: TMemoryStream;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure Append(const AString: string);
-    function GetStream: TMemoryStream;
-  end;
+Uses 
+Classes;
 
-implementation
+Type 
+  TStringStreamBuilder = Class
+    Private 
+      FMemoryStream: TMemoryStream;
+    Public 
+      constructor Create;
+      destructor Destroy;
+      override;
+      Procedure Append(Const AString: String);
+      Function GetStream: TMemoryStream;
+  End;
 
-uses
-  SysUtils;
+Implementation
+
+Uses 
+SysUtils;
 
 { TStringStreamBuilder }
 
 constructor TStringStreamBuilder.Create;
-begin
+Begin
   inherited Create;
   FMemoryStream := TMemoryStream.Create;
-end;
+End;
 
 destructor TStringStreamBuilder.Destroy;
-begin
+Begin
   FMemoryStream.Free;
   inherited Destroy;
-end;
+End;
 
-procedure TStringStreamBuilder.Append(const AString: string);
-var
+Procedure TStringStreamBuilder.Append(Const AString: String);
+
+Var 
   P: PChar;
   StrLength: Integer;
-begin
+Begin
   StrLength := Length(AString);
   GetMem(P, StrLength + 1);
-  try
+  Try
     StrPCopy(P, AString);
     FMemoryStream.Write(P^, StrLength);
-  finally
+  Finally
     FreeMem(P, StrLength + 1);
-  end;
-end;
+End;
+End;
 
-function TStringStreamBuilder.GetStream: TMemoryStream;
-begin
+Function TStringStreamBuilder.GetStream: TMemoryStream;
+Begin
   Result := FMemoryStream;
   FMemoryStream.Position := 0;  { Reset the stream position to the beginning }
-end;
+End;
 
-end.
-
+End.
