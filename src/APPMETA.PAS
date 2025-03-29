@@ -13,7 +13,7 @@ Const AppEnvironment = '16-bit';
 
 Const AppName = 'Old''aVista Chat!';
 
-Const ServerURL = '192.168.1.60';
+Const ServerURL = 'ericexperiment.com';
 
 Const ServerPort = '8081';
 
